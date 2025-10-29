@@ -1,8 +1,9 @@
 import os
 import json
 import urllib.request
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlparse
 import traceback
+from http.server import BaseHTTPRequestHandler
 
 TOKEN = os.environ.get("GITHUB_TOKEN", "")
 HEADERS = {"Authorization": f"token {TOKEN}"} if TOKEN else {}
@@ -48,53 +49,42 @@ def generate_svg(user, langs=None, error=None):
     }
     
     if error:
-        lines = error.splitlines()[:16]  # Show up to 16 lines
+        lines = error.splitlines()[:16]
         height = 20 + len(lines) * 14 + 20
         svg = [f'<svg width="600" height="{height}" xmlns="http://www.w3.org/2000/svg">',
                f'<rect width="600" height="{height}" fill="#0d1117" rx="4"/>',
-               f'<text x="10" y="25" fill="#ff5555" font-family="sans-serif" font-size="12" font-weight="bold">'
-               f'Error for {escape_xml(user)}</text>']
+               f'<text x="10" y="25" fill="#ff5555" font-family="sans-serif" font-size="12" font-weight="bold">Error for {escape_xml(user)}</text>']
         y = 45
         for line in lines:
-            svg.append(f'<text x="10" y="{y}" fill="#ffbbbb" font-family="monospace" font-size="9">'
-                      f'{escape_xml(line)}</text>')
+            svg.append(f'<text x="10" y="{y}" fill="#ffbbbb" font-family="monospace" font-size="9">{escape_xml(line)}</text>')
             y += 14
     else:
         svg = ['<svg width="300" height="200" xmlns="http://www.w3.org/2000/svg">',
                '<rect width="300" height="200" fill="#0d1117" rx="4"/>',
-               f'<text x="10" y="25" fill="#c9d1d9" font-family="sans-serif" font-size="14" font-weight="bold">'
-               f"{escape_xml(user)}'s Top Languages</text>"]
+               f'<text x="10" y="25" fill="#c9d1d9" font-family="sans-serif" font-size="14" font-weight="bold">{escape_xml(user)}\'s Top Languages</text>']
         y = 50
         for lang, pct in langs:
             color = colors.get(lang, "#8b949e")
-            svg.append(
-                f'<rect x="10" y="{y}" width="{pct*2.5}" height="18" fill="{color}" rx="2"/>'
-                f'<text x="15" y="{y+13}" fill="#c9d1d9" font-family="monospace" font-size="11">'
-                f'{escape_xml(lang)} {pct}%</text>'
-            )
+            svg.append(f'<rect x="10" y="{y}" width="{pct*2.5}" height="18" fill="{color}" rx="2"/><text x="15" y="{y+13}" fill="#c9d1d9" font-family="monospace" font-size="11">{escape_xml(lang)} {pct}%</text>')
             y += 28
     
     svg.append('</svg>')
     return "\n".join(svg)
 
-def handler(request, response):
-    query = parse_qs(request.url.split("?", 1)[1]) if "?" in request.url else {}
+def handler(request: BaseHTTPRequestHandler, response):
+    query = parse_qs(urlparse(request.url).query) if "?" in request.url else {}
     user = query.get("username", [""])[0]
-    response.set_header("Content-Type", "image/svg+xml; charset=utf-8")
+    
+    response.status_code = 200
+    response.headers = {"Content-Type": "image/svg+xml; charset=utf-8"}
     
     if not user:
-        svg = generate_svg("Unknown", error="Missing username parameter")
-        response.status = 400
-        response.send(svg)
-        return
+        response.status_code = 400
+        return generate_svg("Unknown", error="Missing username parameter")
     
     try:
         langs = fetch_languages(user)
-        svg = generate_svg(user, langs=langs)
-        response.status = 200
-        response.send(svg)
+        return generate_svg(user, langs=langs)
     except Exception:
-        error_msg = traceback.format_exc()
-        svg = generate_svg(user, error=error_msg)
-        response.status = 500
-        response.send(svg)
+        response.status_code = 500
+        return generate_svg(user, error=traceback.format_exc())
