@@ -9,5 +9,14 @@
       "maxDuration": 10,
       "memory": 128
     }
-  }
+  },
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "max-age=3600" },
+        { "key": "Content-Type", "value": "image/svg+xml; charset=utf-8" }
+      ]
+    }
+  ]
 }
