@@ -1,7 +1,7 @@
 {
   "version": 2,
   "env": {
-    "GITHUB_TOKEN": "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"
+    "GITHUB_TOKEN": ""
   },
   "functions": {
     "api/*.py": {
@@ -13,8 +13,8 @@
     {
       "source": "/api/(.*)",
       "headers": [
-        { "key": "Cache‑Control", "value": "max‑age=3600" },
-        { "key": "Content‑Type", "value": "image/svg+xml; charset=utf‑8" }
+        { "key": "Cache-Control", "value": "max-age=3600" },
+        { "key": "Content-Type", "value": "image/svg+xml; charset=utf-8" }
       ]
     }
   ]
