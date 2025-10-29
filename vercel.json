@@ -1,22 +1,13 @@
 {
   "version": 2,
   "env": {
-    "GITHUB_TOKEN": "@github_token"
+    "GITHUB_TOKEN": "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"
   },
   "functions": {
-    "api/languages.py": {
+    "api/*.py": {
       "runtime": "python3.11",
-      "memory": 128,
-      "maxDuration": 10
+      "maxDuration": 10,
+      "memory": 128
     }
-  },
-  "routes": [
-    {
-      "src": "/api/languages",
-      "dest": "/api/languages.py",
-      "headers": {
-        "Cache-Control": "max-age=3600"
-      }
-    }
-  ]
+  }
 }
