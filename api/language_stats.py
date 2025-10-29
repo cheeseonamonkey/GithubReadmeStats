@@ -1,6 +1,8 @@
-from http.server import BaseHTTPRequestHandler
-from urllib.parse import urlparse, parse_qs
-import urllib.request, json, os, traceback
+import os
+import json
+import urllib.request
+from urllib.parse import parse_qs
+import traceback
 
 TOKEN = os.environ.get("GITHUB_TOKEN", "")
 HEADERS = {"Authorization": f"token {TOKEN}"} if TOKEN else {}
@@ -18,7 +20,8 @@ def fetch_languages(user):
 
     langs = {}
     for repo in repos:
-        if repo.get("fork"): continue
+        if repo.get("fork"): 
+            continue
         try:
             req = urllib.request.Request(
                 f"https://api.github.com/repos/{user}/{repo['name']}/languages",
@@ -46,18 +49,16 @@ def generate_svg(user, langs=None, error=None):
            '<rect width="300" height="200" fill="#0d1117" rx="4"/>']
 
     if error:
-        # Display error in SVG
         svg.append(f'<text x="10" y="25" fill="#ff5555" font-family="sans-serif" font-size="12" font-weight="bold">'
                    f"Error for {user}</text>")
         lines = error.splitlines()
         y = 45
         for line in lines:
-            if y > 180:  # Don't overflow SVG
+            if y > 180:
                 break
             svg.append(f'<text x="10" y="{y}" fill="#ffbbbb" font-family="monospace" font-size="10">{line}</text>')
             y += 14
     else:
-        # Normal SVG output
         svg.append(f'<text x="10" y="25" fill="#c9d1d9" font-family="sans-serif" font-size="14" font-weight="bold">'
                    f"{user}'s Top Languages</text>")
         y = 50
@@ -73,28 +74,27 @@ def generate_svg(user, langs=None, error=None):
     svg.append('</svg>')
     return "\n".join(svg)
 
-class handler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        user = parse_qs(urlparse(self.path).query).get("username", [""])[0]
-        if not user:
-            self.send_response(400)
-            self.send_header("Content-Type", "image/svg+xml")
-            self.end_headers()
-            svg = generate_svg("Unknown", error="Missing username parameter")
-            self.wfile.write(svg.encode())
-            return
 
-        try:
-            langs = fetch_languages(user)
-            svg = generate_svg(user, langs=langs)
-            self.send_response(200)
-            self.send_header("Content-Type", "image/svg+xml")
-            self.end_headers()
-            self.wfile.write(svg.encode())
-        except Exception as e:
-            error_msg = traceback.format_exc()
-            self.send_response(500)
-            self.send_header("Content-Type", "image/svg+xml")
-            self.end_headers()
-            svg = generate_svg(user, error=error_msg)
-            self.wfile.write(svg.encode())
+# Vercel serverless entrypoint
+def handler(request, response):
+    query = parse_qs(request.url.split("?", 1)[1]) if "?" in request.url else {}
+    user = query.get("username", [""])[0]
+
+    response.set_header("Content-Type", "image/svg+xml; charset=utf-8")
+
+    if not user:
+        svg = generate_svg("Unknown", error="Missing username parameter")
+        response.status = 400
+        response.send(svg)
+        return
+
+    try:
+        langs = fetch_languages(user)
+        svg = generate_svg(user, langs=langs)
+        response.status = 200
+        response.send(svg)
+    except Exception:
+        error_msg = traceback.format_exc()
+        svg = generate_svg(user, error=error_msg)
+        response.status = 500
+        response.send(svg)
