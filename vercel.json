@@ -1,9 +1,13 @@
 {
-  "functions": {
-    "api/*.py": {
-      "runtime": "python3.9",
-      "maxDuration": 10,
-      "memory": 1024
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        }
+      ]
     }
-  }
+  ]
 }
