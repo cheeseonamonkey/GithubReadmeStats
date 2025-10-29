@@ -3,7 +3,6 @@ import json
 import urllib.request
 from urllib.parse import parse_qs, urlparse
 import traceback
-from http.server import BaseHTTPRequestHandler
 
 TOKEN = os.environ.get("GITHUB_TOKEN", "")
 HEADERS = {"Authorization": f"token {TOKEN}"} if TOKEN else {}
@@ -71,7 +70,7 @@ def generate_svg(user, langs=None, error=None):
     svg.append('</svg>')
     return "\n".join(svg)
 
-def handler(request: BaseHTTPRequestHandler, response):
+def handler(request, response):
     query = parse_qs(urlparse(request.url).query) if "?" in request.url else {}
     user = query.get("username", [""])[0]
     
