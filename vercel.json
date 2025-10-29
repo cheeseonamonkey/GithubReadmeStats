@@ -1,7 +1,7 @@
 {
   "version": 2,
   "env": {
-    "GITHUB_TOKEN": "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"
+    "GITHUB_TOKEN": "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"
   },
   "functions": {
     "api/*.py": {
