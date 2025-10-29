@@ -6,27 +6,34 @@ TOKEN = os.environ.get("GITHUB_TOKEN", "")
 HEADERS = {"Authorization": f"token {TOKEN}"} if TOKEN else {}
 
 def fetch_languages(user):
-    repos = json.loads(urllib.request.urlopen(
-        urllib.request.Request(
+    try:
+        req = urllib.request.Request(
             f"https://api.github.com/users/{user}/repos?per_page=100",
             headers=HEADERS
         )
-    ).read())
+        with urllib.request.urlopen(req) as resp:
+            repos = json.load(resp)
+    except Exception as e:
+        raise RuntimeError(f"Error fetching repos: {e}")
 
     langs = {}
     for repo in repos:
         if repo.get("fork"): continue
-        data = json.loads(urllib.request.urlopen(
-            urllib.request.Request(
+        try:
+            req = urllib.request.Request(
                 f"https://api.github.com/repos/{user}/{repo['name']}/languages",
                 headers=HEADERS
             )
-        ).read())
-        for lang, bytes_ in data.items():
-            langs[lang] = langs.get(lang, 0) + bytes_
+            with urllib.request.urlopen(req) as resp:
+                data = json.load(resp)
+            for lang, bytes_ in data.items():
+                langs[lang] = langs.get(lang, 0) + bytes_
+        except Exception as e:
+            raise RuntimeError(f"Error fetching languages for {repo['name']}: {e}")
 
     total = sum(langs.values()) or 1
     return [(l, round(b / total * 100, 1)) for l, b in sorted(langs.items(), key=lambda x: x[1], reverse=True)[:5]]
+
 
 def generate_svg(user, langs=None, error=None):
     colors = {
