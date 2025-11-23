@@ -20,6 +20,11 @@ class TopLanguagesCard(GitHubCardBase):
         "Go": "#00ADD8", "Rust": "#dea584", "Ruby": "#701516", "PHP": "#4F5D95",
         "HTML": "#e34c26", "CSS": "#563d7c", "Shell": "#89e051", "Swift": "#F05138"
     }
+    
+    def __init__(self, username, query_params, width=350, header_height=40):
+        super().__init__(username, query_params)
+        self.card_width = width
+        self.header_height = header_height
 
     def fetch_data(self):
         # Implementation is concise, using inherited methods
@@ -104,12 +109,15 @@ class handler(BaseHTTPRequestHandler):
         user = query.get("username", [""])[0]
         card_type = query.get("type", ["languages"])[0]
         
-        # Parse x/y size params
-        x = int(query.get("x", ["350"])[0]) if query.get("x") else 350
-        y = float(query.get("y", ["1"])[0]) if query.get("y") else 1.0
+        # Extract dimensions with defaults
+        width = int(query.get("width", ["350"])[0]) if query.get("width") else 350
+        height = int(query.get("height", ["40"])[0]) if query.get("height") else 40
 
         # Route to the correct card implementation
-        card = TopLanguagesCard(user, query, width=x, scale=y)
+        if card_type == "languages":
+            card = TopLanguagesCard(user, query, width, height)
+        else:
+            card = TopLanguagesCard(user, query, width, height) 
 
         svg_content = card.process()
 
