@@ -102,14 +102,14 @@ class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         query = parse_qs(urlparse(self.path).query) if "?" in self.path else {}
         user = query.get("username", [""])[0]
-        card_type = query.get("type", ["languages"])[0] 
+        card_type = query.get("type", ["languages"])[0]
+        
+        # Parse x/y size params
+        x = int(query.get("x", ["350"])[0]) if query.get("x") else 350
+        y = float(query.get("y", ["1"])[0]) if query.get("y") else 1.0
 
         # Route to the correct card implementation
-        if card_type == "languages":
-            card = TopLanguagesCard(user, query)
-        else:
-            # Fallback/default logic
-            card = TopLanguagesCard(user, query) 
+        card = TopLanguagesCard(user, query, width=x, scale=y)
 
         svg_content = card.process()
 
