@@ -13,25 +13,28 @@ from collections import Counter
 
 class CodeIdentifiersCard(GitHubCardBase):
     MAX_WORKERS = 5
-    EXTENSIONS = {'.py': 'python', '.js': 'js', '.ts': 'js', '.jsx': 'js', '.tsx': 'js'}
-    PY_KEYWORDS = {'self', 'cls', 'args', 'kwargs', 'init', 'str', 'repr', 'del', 'main'}
-    JS_KEYWORDS = {'function', 'class', 'const', 'let', 'var', 'return', 'import', 'export', 'default', 'async', 'await'}
+    EXTENSIONS = {'.py': 'python', '.js': 'javascript', '.ts': 'javascript', '.jsx': 'javascript', '.tsx': 'javascript'}
+    # Common names to skip
+    SKIP_NAMES = {'self', 'cls', 'args', 'kwargs', 'init', 'str', 'repr', 'del', 'main', 
+                  'function', 'class', 'const', 'let', 'var', 'return', 'import', 'export', 
+                  'default', 'async', 'await', 'this', 'super', 'prototype', 'constructor',
+                  'undefined', 'null', 'true', 'false', 'i', 'j', 'k', 'x', 'y', 'z', 'e', 'err'}
     
     def __init__(self, username, query_params, width=350, header_height=40):
         super().__init__(username, query_params)
         self.card_width = width
         self.header_height = header_height
-        self.extract_type = query_params.get('extract', ['functions,classes'])[0]
+        self.extract_type = query_params.get('extract', ['classes,variables'])[0]
     
     def fetch_data(self):
         try:
-            repos_url = f"https://api.github.com/users/{self.user}/repos?per_page=10&type=owner&sort=updated"
+            repos_url = f"https://api.github.com/users/{self.user}/repos?per_page=30&type=owner&sort=updated"
             repos = self._make_request(repos_url)
         except urllib.error.HTTPError as e:
             raise RuntimeError(f"GitHub API Error: {e.code}")
         
         all_identifiers = []
-        repo_names = [r['name'] for r in repos if not r.get('fork')][:8]
+        repo_names = [r['name'] for r in repos if not r.get('fork')][:15]
         
         def fetch_repo_code(repo_name):
             try:
@@ -39,17 +42,19 @@ class CodeIdentifiersCard(GitHubCardBase):
                 tree = self._make_request(tree_url)
                 identifiers = []
                 
-                for item in tree.get('tree', [])[:100]:
+                for item in tree.get('tree', [])[:200]:
+                    if item.get('type') != 'blob':
+                        continue
                     ext = next((e for e in self.EXTENSIONS if item['path'].endswith(e)), None)
-                    if not ext or item['size'] > 100000:
+                    if not ext or item.get('size', 0) > 100000:
                         continue
                     
                     try:
                         raw_url = f"https://raw.githubusercontent.com/{self.user}/{repo_name}/HEAD/{item['path']}"
                         req = urllib.request.Request(raw_url, headers={"User-Agent": "GitHub-Stats"})
-                        with urllib.request.urlopen(req) as resp:
+                        with urllib.request.urlopen(req, timeout=3) as resp:
                             content = resp.read().decode('utf-8', errors='ignore')
-                        identifiers.extend(self._extract_identifiers(content, ext))
+                        identifiers.extend(self._extract_identifiers(content, self.EXTENSIONS[ext]))
                     except:
                         pass
                 
@@ -66,38 +71,41 @@ class CodeIdentifiersCard(GitHubCardBase):
             return []
         
         counts = Counter(all_identifiers)
-        return [{'name': name, 'count': count} for name, count in counts.most_common(6)]
+        return [{'name': name, 'count': count} for name, count in counts.most_common(8)]
     
-    def _extract_identifiers(self, code, ext_type):
+    def _extract_identifiers(self, code, lang):
         identifiers = []
         types = self.extract_type.split(',')
         
-        if ext_type == 'python':
+        if lang == 'python':
             try:
                 tree = ast.parse(code)
-                for node in ast.walk(tree):
-                    if 'functions' in types and isinstance(node, ast.FunctionDef):
-                        if node.name not in self.PY_KEYWORDS and not node.name.startswith('_'):
+                # Get module-level assignments only
+                for node in tree.body:
+                    if 'classes' in types and isinstance(node, ast.ClassDef):
+                        if not node.name.startswith('_') and len(node.name) > 1:
                             identifiers.append(node.name)
-                    elif 'classes' in types and isinstance(node, ast.ClassDef):
-                        if not node.name.startswith('_'):
-                            identifiers.append(node.name)
-                    elif 'variables' in types and isinstance(node, ast.Assign) and getattr(node, 'col_offset', 0) == 0:
+                    elif 'variables' in types and isinstance(node, ast.Assign):
                         for target in node.targets:
-                            if isinstance(target, ast.Name) and target.id not in self.PY_KEYWORDS:
-                                identifiers.append(target.id)
+                            if isinstance(target, ast.Name):
+                                name = target.id
+                                # Only module-level, non-private, reasonable length
+                                if not name.startswith('_') and 1 < len(name) < 30 and name not in self.SKIP_NAMES:
+                                    identifiers.append(name)
             except:
                 pass
         
-        elif ext_type == 'js':
-            patterns = [
-                (r'(?:function|class)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)', 'functions,classes'),
-                (r'(?:const|let|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=', 'variables')
-            ]
-            for pattern, pattern_type in patterns:
-                if any(t in types for t in pattern_type.split(',')):
-                    matches = re.findall(pattern, code)
-                    identifiers.extend([m for m in matches if m not in self.JS_KEYWORDS])
+        elif lang == 'javascript':
+            # Class declarations
+            if 'classes' in types:
+                class_matches = re.findall(r'\bclass\s+([A-Z][a-zA-Z0-9_]*)', code)
+                identifiers.extend([m for m in class_matches if m not in self.SKIP_NAMES])
+            
+            # Variable declarations (const/let/var)
+            if 'variables' in types:
+                var_matches = re.findall(r'\b(?:const|let|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=', code)
+                identifiers.extend([m for m in var_matches 
+                                  if m not in self.SKIP_NAMES and 1 < len(m) < 30])
         
         return identifiers
     
@@ -107,7 +115,7 @@ class CodeIdentifiersCard(GitHubCardBase):
         try:
             data = self.fetch_data()
             body, height = self.render_body(data)
-            return self._render_frame(f"{self.user}'s Favorite Identifiers", body, height)
+            return self._render_frame(f"{self.user}'s Favorite Names", body, height)
         except Exception:
             import traceback
             return self._render_error(traceback.format_exc())
