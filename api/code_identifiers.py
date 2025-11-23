@@ -12,13 +12,12 @@ import re
 from collections import Counter
 
 class CodeIdentifiersCard(GitHubCardBase):
-    MAX_WORKERS = 5
+    MAX_WORKERS = 8
     EXTENSIONS = {'.py': 'python', '.js': 'javascript', '.ts': 'javascript', '.jsx': 'javascript', '.tsx': 'javascript'}
-    # Common names to skip
-    SKIP_NAMES = {'self', 'cls', 'args', 'kwargs', 'init', 'str', 'repr', 'del', 'main', 
-                  'function', 'class', 'const', 'let', 'var', 'return', 'import', 'export', 
-                  'default', 'async', 'await', 'this', 'super', 'prototype', 'constructor',
-                  'undefined', 'null', 'true', 'false', 'i', 'j', 'k', 'x', 'y', 'z', 'e', 'err'}
+    # Minimal skip list - only super common noise
+    SKIP_NAMES = {'i', 'j', 'k', 'x', 'y', 'z', 'e', 't', 'a', 'b', 'c', 'd', 'f', 'g', 'h', 
+                  'id', 'el', 'err', 'fn', 'cb', 'fs', 'os', 'db', 'api', 'app', 'env',
+                  'self', 'cls', 'args', 'kwargs', 'this'}
     
     def __init__(self, username, query_params, width=350, header_height=40):
         super().__init__(username, query_params)
@@ -28,39 +27,41 @@ class CodeIdentifiersCard(GitHubCardBase):
     
     def fetch_data(self):
         try:
-            repos_url = f"https://api.github.com/users/{self.user}/repos?per_page=30&type=owner&sort=updated"
+            repos_url = f"https://api.github.com/users/{self.user}/repos?per_page=100&type=owner&sort=updated"
             repos = self._make_request(repos_url)
         except urllib.error.HTTPError as e:
             raise RuntimeError(f"GitHub API Error: {e.code}")
         
         all_identifiers = []
-        repo_names = [r['name'] for r in repos if not r.get('fork')][:15]
+        repo_names = [r['name'] for r in repos if not r.get('fork')][:25]
         
         def fetch_repo_code(repo_name):
+            identifiers = []
             try:
                 tree_url = f"https://api.github.com/repos/{self.user}/{repo_name}/git/trees/HEAD?recursive=1"
                 tree = self._make_request(tree_url)
-                identifiers = []
                 
-                for item in tree.get('tree', [])[:200]:
-                    if item.get('type') != 'blob':
-                        continue
+                files = [item for item in tree.get('tree', []) 
+                        if item.get('type') == 'blob' and 
+                        any(item['path'].endswith(ext) for ext in self.EXTENSIONS) and
+                        item.get('size', 0) < 200000][:300]
+                
+                for item in files:
                     ext = next((e for e in self.EXTENSIONS if item['path'].endswith(e)), None)
-                    if not ext or item.get('size', 0) > 100000:
+                    if not ext:
                         continue
                     
                     try:
                         raw_url = f"https://raw.githubusercontent.com/{self.user}/{repo_name}/HEAD/{item['path']}"
                         req = urllib.request.Request(raw_url, headers={"User-Agent": "GitHub-Stats"})
-                        with urllib.request.urlopen(req, timeout=3) as resp:
+                        with urllib.request.urlopen(req, timeout=5) as resp:
                             content = resp.read().decode('utf-8', errors='ignore')
                         identifiers.extend(self._extract_identifiers(content, self.EXTENSIONS[ext]))
                     except:
-                        pass
-                
-                return identifiers
+                        continue
             except:
-                return []
+                pass
+            return identifiers
         
         with ThreadPoolExecutor(max_workers=self.MAX_WORKERS) as executor:
             futures = {executor.submit(fetch_repo_code, name): name for name in repo_names}
@@ -71,7 +72,7 @@ class CodeIdentifiersCard(GitHubCardBase):
             return []
         
         counts = Counter(all_identifiers)
-        return [{'name': name, 'count': count} for name, count in counts.most_common(8)]
+        return [{'name': name, 'count': count} for name, count in counts.most_common(10)]
     
     def _extract_identifiers(self, code, lang):
         identifiers = []
@@ -80,32 +81,35 @@ class CodeIdentifiersCard(GitHubCardBase):
         if lang == 'python':
             try:
                 tree = ast.parse(code)
-                # Get module-level assignments only
-                for node in tree.body:
+                for node in ast.walk(tree):
                     if 'classes' in types and isinstance(node, ast.ClassDef):
-                        if not node.name.startswith('_') and len(node.name) > 1:
+                        if not node.name.startswith('_') and len(node.name) > 2:
                             identifiers.append(node.name)
-                    elif 'variables' in types and isinstance(node, ast.Assign):
-                        for target in node.targets:
-                            if isinstance(target, ast.Name):
-                                name = target.id
-                                # Only module-level, non-private, reasonable length
-                                if not name.startswith('_') and 1 < len(name) < 30 and name not in self.SKIP_NAMES:
-                                    identifiers.append(name)
+                    elif 'variables' in types:
+                        # Assignments at any level (not just module-level)
+                        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+                            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                            for target in targets:
+                                if isinstance(target, ast.Name):
+                                    name = target.id
+                                    if (not name.startswith('_') and 
+                                        2 < len(name) < 40 and 
+                                        name.lower() not in self.SKIP_NAMES and
+                                        not name.isupper()):  # Skip CONSTANTS
+                                        identifiers.append(name)
             except:
                 pass
         
         elif lang == 'javascript':
-            # Class declarations
             if 'classes' in types:
-                class_matches = re.findall(r'\bclass\s+([A-Z][a-zA-Z0-9_]*)', code)
-                identifiers.extend([m for m in class_matches if m not in self.SKIP_NAMES])
+                identifiers.extend(re.findall(r'\bclass\s+([A-Z][a-zA-Z0-9_]*)', code))
             
-            # Variable declarations (const/let/var)
             if 'variables' in types:
-                var_matches = re.findall(r'\b(?:const|let|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=', code)
-                identifiers.extend([m for m in var_matches 
-                                  if m not in self.SKIP_NAMES and 1 < len(m) < 30])
+                # const/let/var declarations
+                matches = re.findall(r'\b(?:const|let|var)\s+([a-z_$][a-zA-Z0-9_$]*)\s*[=;]', code)
+                identifiers.extend([m for m in matches 
+                                  if 2 < len(m) < 40 and 
+                                  m.lower() not in self.SKIP_NAMES])
         
         return identifiers
     
