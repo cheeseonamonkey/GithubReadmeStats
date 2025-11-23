@@ -3,6 +3,7 @@ import json
 import urllib.request
 from urllib.parse import parse_qs, urlparse
 import traceback
+from http.server import BaseHTTPRequestHandler
 
 TOKEN = os.environ.get("GITHUB_TOKEN", "")
 HEADERS = {"Authorization": f"token {TOKEN}"} if TOKEN else {}
@@ -70,20 +71,27 @@ def generate_svg(user, langs=None, error=None):
     svg.append('</svg>')
     return "\n".join(svg)
 
-def handler(request, response):
-    query = parse_qs(urlparse(request.url).query) if "?" in request.url else {}
-    user = query.get("username", [""])[0]
-    
-    response.status_code = 200
-    response.headers = {"Content-Type": "image/svg+xml; charset=utf-8"}
-    
-    if not user:
-        response.status_code = 400
-        return generate_svg("Unknown", error="Missing username parameter")
-    
-    try:
-        langs = fetch_languages(user)
-        return generate_svg(user, langs=langs)
-    except Exception:
-        response.status_code = 500
-        return generate_svg(user, error=traceback.format_exc())
+class handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        query = parse_qs(urlparse(self.path).query) if "?" in self.path else {}
+        user = query.get("username", [""])[0]
+        
+        if not user:
+            self.send_response(400)
+            self.send_header("Content-Type", "image/svg+xml; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(generate_svg("Unknown", error="Missing username parameter").encode())
+            return
+        
+        try:
+            langs = fetch_languages(user)
+            svg = generate_svg(user, langs=langs)
+            self.send_response(200)
+            self.send_header("Content-Type", "image/svg+xml; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(svg.encode())
+        except Exception:
+            self.send_response(500)
+            self.send_header("Content-Type", "image/svg+xml; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(generate_svg(user, error=traceback.format_exc()).encode())
