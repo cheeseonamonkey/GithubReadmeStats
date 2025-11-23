@@ -1,6 +1,6 @@
 # language_card.py
 
-import github_base 
+from . import github_base
 import json
 import urllib.request
 import urllib.error
