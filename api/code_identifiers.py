@@ -10,17 +10,18 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import ast
 import re
 from collections import Counter
-import base64
 
 class CodeIdentifiersCard(GitHubCardBase):
     MAX_WORKERS = 5
-    EXTENSIONS = {'.py': 'python', '.js': 'js', '.ts': 'js', '.jsx': 'js', '.tsx': 'js', 
-                  '.java': 'generic', '.go': 'generic', '.rs': 'generic', '.rb': 'generic'}
+    EXTENSIONS = {'.py': 'python', '.js': 'js', '.ts': 'js', '.jsx': 'js', '.tsx': 'js'}
+    PY_KEYWORDS = {'self', 'cls', 'args', 'kwargs', 'init', 'str', 'repr', 'del', 'main'}
+    JS_KEYWORDS = {'function', 'class', 'const', 'let', 'var', 'return', 'import', 'export', 'default', 'async', 'await'}
     
     def __init__(self, username, query_params, width=350, header_height=40):
         super().__init__(username, query_params)
         self.card_width = width
         self.header_height = header_height
+        self.extract_type = query_params.get('extract', ['functions,classes'])[0]
     
     def fetch_data(self):
         try:
@@ -30,7 +31,7 @@ class CodeIdentifiersCard(GitHubCardBase):
             raise RuntimeError(f"GitHub API Error: {e.code}")
         
         all_identifiers = []
-        repo_names = [r['name'] for r in repos if not r.get('fork')][:3]
+        repo_names = [r['name'] for r in repos if not r.get('fork')][:8]
         
         def fetch_repo_code(repo_name):
             try:
@@ -38,7 +39,7 @@ class CodeIdentifiersCard(GitHubCardBase):
                 tree = self._make_request(tree_url)
                 identifiers = []
                 
-                for item in tree.get('tree', [])[:80]:
+                for item in tree.get('tree', [])[:100]:
                     ext = next((e for e in self.EXTENSIONS if item['path'].endswith(e)), None)
                     if not ext or item['size'] > 100000:
                         continue
@@ -69,35 +70,51 @@ class CodeIdentifiersCard(GitHubCardBase):
     
     def _extract_identifiers(self, code, ext_type):
         identifiers = []
+        types = self.extract_type.split(',')
         
         if ext_type == 'python':
             try:
                 tree = ast.parse(code)
                 for node in ast.walk(tree):
-                    if isinstance(node, (ast.FunctionDef, ast.ClassDef)):
-                        identifiers.append(node.name)
-                    elif isinstance(node, ast.Assign):
+                    if 'functions' in types and isinstance(node, ast.FunctionDef):
+                        if node.name not in self.PY_KEYWORDS and not node.name.startswith('_'):
+                            identifiers.append(node.name)
+                    elif 'classes' in types and isinstance(node, ast.ClassDef):
+                        if not node.name.startswith('_'):
+                            identifiers.append(node.name)
+                    elif 'variables' in types and isinstance(node, ast.Assign) and getattr(node, 'col_offset', 0) == 0:
                         for target in node.targets:
-                            if isinstance(target, ast.Name):
+                            if isinstance(target, ast.Name) and target.id not in self.PY_KEYWORDS:
                                 identifiers.append(target.id)
             except:
-                identifiers = re.findall(r'\b([a-z_][a-z0-9_]*)\b', code.lower())
+                pass
         
         elif ext_type == 'js':
-            patterns = [r'(?:function|const|let|var|class)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)',
-                       r'([a-zA-Z_$][a-zA-Z0-9_$]*)\s*[:=]\s*(?:function|async|\(|=>)']
-            for pattern in patterns:
-                identifiers.extend(re.findall(pattern, code))
+            patterns = [
+                (r'(?:function|class)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)', 'functions,classes'),
+                (r'(?:const|let|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=', 'variables')
+            ]
+            for pattern, pattern_type in patterns:
+                if any(t in types for t in pattern_type.split(',')):
+                    matches = re.findall(pattern, code)
+                    identifiers.extend([m for m in matches if m not in self.JS_KEYWORDS])
         
-        else:
-            identifiers = re.findall(r'\b([a-z_][a-z0-9_]{2,})\b', code.lower())
-        
-        return [i for i in identifiers if len(i) > 2 and not i.isupper() and i not in 
-                {'function', 'class', 'const', 'let', 'var', 'return', 'import', 'export'}]
+        return identifiers
+    
+    def process(self):
+        if not self.user:
+            return self._render_error("Missing ?username= parameter")
+        try:
+            data = self.fetch_data()
+            body, height = self.render_body(data)
+            return self._render_frame(f"{self.user}'s Favorite Identifiers", body, height)
+        except Exception:
+            import traceback
+            return self._render_error(traceback.format_exc())
     
     def render_body(self, stats):
         if not stats:
-            return '<text x="20" y="60" class="stat-value">No code found.</text>', 40
+            return '<text x="20" y="60" class="stat-value">No identifiers found.</text>', 40
         
         bar_height, row_height = 12, 20
         bar_width_max, y_offset = 200, 10
@@ -124,9 +141,10 @@ class handler(BaseHTTPRequestHandler):
         query = parse_qs(urlparse(self.path).query) if "?" in self.path else {}
         user = query.get("username", [""])[0]
         card = CodeIdentifiersCard(user, query)
+        svg = card.process()
         
         self.send_response(200)
         self.send_header("Content-Type", "image/svg+xml; charset=utf-8")
         self.send_header("Cache-Control", "no-cache, max-age=0")
         self.end_headers()
-        self.wfile.write(card.process().encode())
+        self.wfile.write(svg.encode())
