@@ -92,6 +92,20 @@ class Control {
     assert {'Widget', 'Alias', 'Status', 'Control', 'start'}.issubset(set(names))
 
 
+def test_extracts_typescript_properties_and_exports():
+    card = make_card()
+    code = """
+export default class Runner {
+  public title: string;
+  private count = 0;
+  run = () => count;
+  execute(task: string): void {}
+}
+"""
+    names = card._extract(code, 'typescript')
+    assert {'Runner', 'title', 'count', 'run', 'execute'}.issubset(set(names))
+
+
 def test_extracts_python_classes_and_attributes():
     card = make_card()
     code = """
