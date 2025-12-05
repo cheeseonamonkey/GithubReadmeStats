@@ -1,6 +1,6 @@
 # GitHub Stats Cards
 
-SVG card generator for GitHub profiles. Deploy to Vercel, embed anywhere.
+SVG card generator for GitHub profiles.
 
 ## Endpoints
 
