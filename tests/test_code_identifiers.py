@@ -1,57 +1,49 @@
 import os
 import sys
-import pytest
 from collections import Counter
+
+import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from api.code_identifiers import CodeIdentifiersCard
 
 
-def make_card(filter_value=None):
-    params = {}
-    if filter_value is not None:
-        params['filter'] = [filter_value]
-    return CodeIdentifiersCard('user', params)
+def make_card():
+    return CodeIdentifiersCard('user', {})
 
 
-def test_default_filters_used_when_missing():
-    assert make_card().extract_filters == {'types', 'identifiers'}
-
-
-def test_filters_trimmed_and_lowercased():
-    card = make_card(' Identifiers , TYPES ')
-    assert card.extract_filters == {'types', 'identifiers'}
-
-
-def test_filters_fall_back_on_invalid_values():
-    card = make_card(' , ,,unknown')
-    assert card.extract_filters == {'types', 'identifiers'}
-
-
-def test_filters_keep_valid_subset():
-    card = make_card('types')
-    assert card.extract_filters == {'types'}
-
-
-def test_extract_respects_selected_types():
-    card = make_card('types')
+def test_extract_filters_keywords_and_noise():
+    card = make_card()
     code = """
-class Alpha:
-    value = 1
-"""
-    assert card._extract(code, 'python') == ['Alpha']
-
-
-def test_extract_identifiers_includes_functions_and_variables():
-    card = make_card('identifiers')
-    code = """
-def shout(value):
-    total = value + 1
-    return total
+for i in range(3):
+    total = i + 1
+    while total < 10:
+        total += 1
 """
 
-    assert card._extract(code, 'python') == ['shout', 'total']
+    names = card._extract(code, 'python')
+
+    assert 'while' not in names
+    assert names.count('total') >= 2
+
+
+def test_extracts_identifiers_from_multiple_patterns():
+    card = make_card()
+    code = """
+const startTime = Date.now();
+function runner() {
+  let message = 'ok';
+  return message;
+}
+"""
+
+    names = card._extract(code, 'javascript')
+
+    assert 'date' not in [n.lower() for n in names]
+    assert 'now' not in [n.lower() for n in names]
+    assert names.count('message') >= 2
+    assert {'startTime', 'runner'}.issubset(names)
 
 
 def test_should_skip_generated_or_vendor_paths():
@@ -75,3 +67,9 @@ def test_render_body_adds_legend_and_metadata():
     assert 'Python (2)' in svg
     assert '2 repos • 3 files scanned' in svg
     assert height > 0
+
+
+def test_process_without_username_errors():
+    card = CodeIdentifiersCard('', {})
+    svg = card.process()
+    assert 'Missing ?username=' in svg

@@ -26,25 +26,18 @@ h1 { border-bottom: 1px solid #30363d; padding-bottom: 10px; }
 
 <div class=\"endpoint\">
 <h3>GET <code>/api/code_identifiers</code></h3>
-<p>Most frequent code identifiers across Python, JavaScript/TypeScript, Java, Kotlin, C#, Go, C/C++, PHP, Ruby, and Swift. Use <code>filter</code> to mix types and identifiers.</p>
-<pre>?username=octocat
-&amp;filter=types,identifiers</pre>
-</div>
-
-<div class=\"endpoint\">
-<h3>GET <code>/api/code_identifiers/types</code></h3>
-<p>Shortcut endpoint that focuses on type-like declarations only (classes, records, interfaces, etc.).</p>
+<p>Most frequent identifiers across Python, JavaScript/TypeScript, Java, Kotlin, C#, Go, C/C++, PHP, Ruby, and Swift.</p>
 <pre>?username=octocat</pre>
 </div>
 
 <div class=\"endpoint\">
 <h3>GET <code>/api/code_identifiers/identifiers</code></h3>
-<p>Shortcut endpoint that highlights identifiers such as functions and variables.</p>
+<p>Alias endpoint for the identifiers card.</p>
 <pre>?username=octocat</pre>
 </div>
 
 <h3>Example</h3>
-<pre>&lt;img src=\"https://your-domain.vercel.app/api/code_identifiers/types?username=octocat\" /&gt;</pre>
+<pre>&lt;img src=\"https://your-domain.vercel.app/api/code_identifiers?username=octocat\" /&gt;</pre>
 
 <p><a href=\"https://github.com/your-repo\">Source</a></p>
 </body></html>"""
