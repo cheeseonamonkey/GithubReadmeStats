@@ -16,9 +16,16 @@ from .languages import EXTENSION_TO_LANG, LANGUAGE_COLORS, LANGUAGE_NAMES
 
 @dataclass(frozen=True)
 class FetchResult:
-    identifiers: list[tuple[str, str]]
+    identifiers: list["IdentifierMatch"]
     files_scanned: int
     language_counts: CounterType[str]
+
+
+@dataclass(frozen=True)
+class IdentifierMatch:
+    normalized: str
+    display: str
+    lang: str
 
 
 class CodeIdentifiersCard(GitHubCardBase):
@@ -46,7 +53,8 @@ class CodeIdentifiersCard(GitHubCardBase):
             return EXTENSION_TO_LANG[ext], resp.read().decode("utf-8", errors="ignore")
 
     def _fetch_repo(self, repo: str) -> FetchResult:
-        results, files_scanned, lang_counts = [], 0, CounterType()
+        results: list[IdentifierMatch] = []
+        files_scanned, lang_counts = 0, CounterType()
         try:
             tree = self._make_request(
                 f"https://api.github.com/repos/{self.user}/{repo}/git/trees/HEAD?recursive=1"
@@ -72,7 +80,9 @@ class CodeIdentifiersCard(GitHubCardBase):
                         continue
                     files_scanned += 1
                     lang_counts[lang_key] += 1
-                    results.extend((name, lang_key) for name in self._extract(content, lang_key))
+                    for name in self._extract(content, lang_key):
+                        normalized = self.extractor.normalize_identifier(name)
+                        results.append(IdentifierMatch(normalized, name, lang_key))
         except Exception:
             pass
         return FetchResult(results, files_scanned, lang_counts)
@@ -82,6 +92,7 @@ class CodeIdentifiersCard(GitHubCardBase):
         repo_names = [r["name"] for r in repos if not r.get("fork")]
 
         id_langs: dict[str, CounterType[str]] = {}
+        display_names: dict[str, str] = {}
         lang_file_counts: CounterType[str] = CounterType()
         total_files = 0
 
@@ -90,8 +101,9 @@ class CodeIdentifiersCard(GitHubCardBase):
                 result = future.result()
                 total_files += result.files_scanned
                 lang_file_counts.update(result.language_counts)
-                for name, lang in result.identifiers:
-                    id_langs.setdefault(name, CounterType())[lang] += 1
+                for match in result.identifiers:
+                    id_langs.setdefault(match.normalized, CounterType())[match.lang] += 1
+                    display_names.setdefault(match.normalized, match.display)
 
         limit = 15
         try:
@@ -100,7 +112,11 @@ class CodeIdentifiersCard(GitHubCardBase):
             pass
 
         scored = [
-            {"name": n, "count": sum(lc.values()), "lang": lc.most_common(1)[0][0]}
+            {
+                "name": display_names.get(n, n),
+                "count": sum(lc.values()),
+                "langs": lc,
+            }
             for n, lc in id_langs.items()
         ]
         scored.sort(key=lambda x: x["count"], reverse=True)
@@ -152,11 +168,27 @@ class CodeIdentifiersCard(GitHubCardBase):
             max_count = max(s["count"] for s in items)
             for i, item in enumerate(items):
                 y = 8 + i * row_h
-                w = (item["count"] / max_count) * bar_w
-                color = LANGUAGE_COLORS.get(item["lang"], "#58a6ff")
+                lang_counts = item.get("langs") or CounterType({item.get("lang", "other"): item["count"]})
+                total_lang = sum(lang_counts.values()) or 1
+                scaled_width = max((item["count"] / max_count) * bar_w, 2)
+                tooltip = ", ".join(
+                    f"{escape_xml(LANGUAGE_NAMES.get(lang, lang))}: {count}"
+                    for lang, count in lang_counts.most_common()
+                )
+
+                segments = []
+                x_offset = 110.0
+                for lang_key, lang_count in lang_counts.most_common():
+                    seg_w = max((lang_count / total_lang) * scaled_width, 2)
+                    color = LANGUAGE_COLORS.get(lang_key, "#58a6ff")
+                    segments.append(
+                        f'<rect x="{x_offset:.2f}" y="0" width="{seg_w:.2f}" height="{bar_h}" rx="2" fill="{color}" />'
+                    )
+                    x_offset += seg_w
+
                 svg.append(
                     f"""
-                    <g transform=\"translate({self.padding},{y})\">\n                        <text x=\"0\" y=\"{bar_h-2}\" class=\"stat-name\">{escape_xml(item['name'])}</text>\n                        <rect x=\"110\" y=\"0\" width=\"{bar_w}\" height=\"{bar_h}\" rx=\"3\" fill=\"#21262d\"/>\n                        <rect x=\"110\" y=\"0\" width=\"{max(w,2):.2f}\" height=\"{bar_h}\" rx=\"3\" fill=\"{color}\"/>\n                        <text x=\"{110+bar_w+10}\" y=\"{bar_h-2}\" class=\"stat-value\">{item['count']}</text>\n                    </g>"""
+                    <g transform=\"translate({self.padding},{y})\">\n                        <text x=\"0\" y=\"{bar_h-2}\" class=\"stat-name\">{escape_xml(item['name'])}</text>\n                        <rect x=\"110\" y=\"0\" width=\"{bar_w}\" height=\"{bar_h}\" rx=\"3\" fill=\"#21262d\"/>\n                        {''.join(segments)}\n                        <text x=\"{110+bar_w+10}\" y=\"{bar_h-2}\" class=\"stat-value\">{item['count']}</text>\n                        <title>{tooltip}</title>\n                    </g>"""
                 )
             body_height = len(items) * row_h + 8
 

@@ -49,8 +49,12 @@ LANGUAGE_CONFIGS: Sequence[LanguageConfig] = (
             re.compile(r"^\s*def\s+([a-z_][a-z0-9_]*)\s*\(", re.MULTILINE | re.IGNORECASE),
             re.compile(r"^\s*async\s+def\s+([a-z_][a-z0-9_]*)\s*\(", re.MULTILINE | re.IGNORECASE),
             re.compile(r"^\s*class\s+([a-z_][a-z0-9_]*)", re.MULTILINE | re.IGNORECASE),
+            re.compile(r"([a-z_][a-z0-9_]*)\s*=\s*lambda\s", re.IGNORECASE),
             re.compile(r"^[ \t]*([a-z_][a-z0-9_]*)\s*=", re.MULTILINE),
             re.compile(r"\bself\.([a-z_][a-z0-9_]*)\s*=", re.IGNORECASE),
+            re.compile(r"^\s*@([A-Za-z_][A-Za-z0-9_]*)", re.MULTILINE),
+            re.compile(r":\s*([A-Z][A-Za-z0-9_]*)"),
+            re.compile(r"->\s*([A-Za-z_][A-Za-z0-9_]*)"),
         ),
         keywords=frozenset(
             {
@@ -98,7 +102,7 @@ LANGUAGE_CONFIGS: Sequence[LanguageConfig] = (
         key="javascript",
         display_name="JavaScript",
         color="#f1e05a",
-        extensions=(".js", ".jsx"),
+        extensions=(".js", ".jsx", ".mjs", ".cjs"),
         strip_patterns=(
             *STRIP_STRINGS,
             *STRIP_COMMENTS,
@@ -165,7 +169,7 @@ LANGUAGE_CONFIGS: Sequence[LanguageConfig] = (
         key="typescript",
         display_name="TypeScript",
         color="#2b7489",
-        extensions=(".ts", ".tsx"),
+        extensions=(".ts", ".tsx", ".mts", ".cts"),
         strip_patterns=(
             *STRIP_STRINGS,
             *STRIP_COMMENTS,
