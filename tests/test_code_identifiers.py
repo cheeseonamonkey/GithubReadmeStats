@@ -192,3 +192,40 @@ public class DemoController {
 """
     names = card._extract(code, 'csharp')
     assert {'DemoController', 'Name', 'RunAsync'}.issubset(set(names))
+
+
+def test_python_lambdas_params_and_loops():
+    card = make_card()
+    code = """
+@cached
+def process(item: ItemType, row_id: int) -> ResultType:
+    config_name = "value"
+    helper = lambda value: value + 1
+    for view, element in enumerate(items):
+        pass
+"""
+    names = set(card._extract(code, 'python'))
+    assert {'process', 'item', 'row_id', 'ItemType', 'ResultType', 'config_name', 'helper', 'view', 'element', 'cached'}.issubset(names)
+
+
+def test_normalizes_identifier_casing():
+    extractor = make_card().extractor
+    assert extractor.normalize_identifier('myFunc') == extractor.normalize_identifier('my_func') == 'my_func'
+
+
+def test_render_body_supports_multiple_languages_per_bar():
+    card = make_card()
+    stats = {
+        'items': [
+            {
+                'name': 'alpha',
+                'count': 4,
+                'langs': Counter({'python': 2, 'javascript': 2}),
+            }
+        ],
+        'language_files': Counter({'python': 2, 'javascript': 2}),
+        'repo_count': 1,
+        'file_count': 4,
+    }
+    svg, _ = card.render_body(stats)
+    assert '#3572A5' in svg and '#f1e05a' in svg
