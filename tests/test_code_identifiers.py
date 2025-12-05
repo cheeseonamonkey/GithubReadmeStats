@@ -149,7 +149,8 @@ public class Sample<T> {
 }
 """
     names = set(card._extract(code, 'java'))
-    assert {'Override', 'Sample', 'Map', 'List', 'Item', 'table', 'Builder'}.issubset(names)
+    assert {'Sample', 'Map', 'List', 'Item', 'table', 'Builder'}.issubset(names)
+    assert 'Override' not in names
 
 
 def test_should_skip_generated_or_vendor_paths():
@@ -197,6 +198,34 @@ public class Test {
     assert 'Generic' not in names
     assert 'myMethod' in names
     assert 'count' in names
+
+
+def test_filters_system_and_override_substrings():
+    card = make_card()
+    code = """
+class SystemManager:
+    def __init__(self):
+        self.override_mode = False
+
+def active_task():
+    pass
+"""
+    names = set(card._extract(code, 'python'))
+    assert 'SystemManager' not in names
+    assert 'override_mode' not in names
+    assert 'active_task' in names
+
+
+def test_extracts_python_generic_wrappers():
+    card = make_card()
+    code = """
+from typing import Optional, Dict
+
+item: Optional[Response]
+items: Dict[str, Response]
+"""
+    names = set(card._extract(code, 'python'))
+    assert {'Optional', 'Dict', 'Response', 'item', 'items'}.issubset(names)
 
 
 def test_csharp_properties_and_async_methods():
