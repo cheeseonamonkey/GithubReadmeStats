@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from typing import Counter as CounterType, List, Sequence
+from typing import Counter as CounterType, Iterable, List, Sequence
 from urllib.parse import parse_qs, urlparse
 from http.server import BaseHTTPRequestHandler
 import urllib.request
@@ -37,6 +37,7 @@ STRIP_STRINGS = [
     re.compile(r"'(?:[^'\\]|\\.)*'"),
     re.compile(r'`(?:[^`\\]|\\.)*`'),
 ]
+STRIP_ANNOTATIONS = [re.compile(r'^\s*@\w+.*$', re.MULTILINE)]
 
 
 LANGUAGE_CONFIGS: Sequence[LanguageConfig] = (
@@ -51,7 +52,10 @@ LANGUAGE_CONFIGS: Sequence[LanguageConfig] = (
         ),
         identifier_patterns=(
             re.compile(r'^\s*def\s+([a-z_][a-z0-9_]*)\s*\(', re.MULTILINE | re.IGNORECASE),
+            re.compile(r'^\s*async\s+def\s+([a-z_][a-z0-9_]*)\s*\(', re.MULTILINE | re.IGNORECASE),
+            re.compile(r'^\s*class\s+([a-z_][a-z0-9_]*)', re.MULTILINE | re.IGNORECASE),
             re.compile(r'^[ \t]*([a-z_][a-z0-9_]*)\s*=', re.MULTILINE),
+            re.compile(r'\bself\.([a-z_][a-z0-9_]*)\s*=', re.IGNORECASE),
         ),
         keywords=frozenset({
             "and", "as", "assert", "async", "await", "break", "class", "continue",
@@ -74,6 +78,8 @@ LANGUAGE_CONFIGS: Sequence[LanguageConfig] = (
         identifier_patterns=(
             re.compile(r'\b(?:const|let|var)\s+([a-z_$][a-z0-9_$]*)\s*=', re.IGNORECASE),
             re.compile(r'\bfunction\s+([a-z_$][a-z0-9_$]*)\s*\(', re.IGNORECASE),
+            re.compile(r'\bclass\s+([a-z_$][a-z0-9_$]*)', re.IGNORECASE),
+            re.compile(r'(?:^|[;{])\s*(?:async\s+)?([a-z_$][a-z0-9_$]*)\s*\([^)]*?\)\s*{', re.MULTILINE | re.IGNORECASE),
         ),
         keywords=frozenset({
             "break", "case", "catch", "class", "const", "continue", "debugger",
@@ -97,6 +103,9 @@ LANGUAGE_CONFIGS: Sequence[LanguageConfig] = (
         identifier_patterns=(
             re.compile(r'\b(?:const|let|var)\s+([a-z_$][a-z0-9_$]*)\s*[=:]', re.IGNORECASE),
             re.compile(r'\bfunction\s+([a-z_$][a-z0-9_$]*)\s*[<(]', re.IGNORECASE),
+            re.compile(r'\bclass\s+([a-z_$][a-z0-9_$]*)', re.IGNORECASE),
+            re.compile(r'\b(?:interface|type|enum)\s+([a-z_$][a-z0-9_$]*)', re.IGNORECASE),
+            re.compile(r'(?:^|[;{])\s*(?:public\s+|private\s+|protected\s+)?(?:async\s+)?([a-z_$][a-z0-9_$]*)\s*\([^)]*?\)\s*{', re.MULTILINE | re.IGNORECASE),
         ),
         keywords=frozenset({
             "abstract", "any", "as", "async", "await", "boolean", "break", "case",
@@ -115,13 +124,15 @@ LANGUAGE_CONFIGS: Sequence[LanguageConfig] = (
         color="#b07219",
         extensions=(".java",),
         strip_patterns=(
-            *STRIP_STRINGS, *STRIP_COMMENTS,
+            *STRIP_STRINGS, *STRIP_COMMENTS, *STRIP_ANNOTATIONS,
             re.compile(r'^import\s+.*?;', re.MULTILINE),
             re.compile(r'^package\s+.*?;', re.MULTILINE),
         ),
         identifier_patterns=(
-            re.compile(r'\b(?:void|int|long|double|float|boolean|String|char|byte|short|var)\s+([a-z_][a-z0-9_]*)\s*\(', re.IGNORECASE),
-            re.compile(r'\b(?:int|long|double|float|boolean|String|char|byte|short|var)\s+([a-z_][a-z0-9_]*)\s*[=;]', re.IGNORECASE),
+            re.compile(r'\bclass\s+([A-Za-z_][A-Za-z0-9_]*)'),
+            re.compile(r'\b(?:interface|enum|record)\s+([A-Za-z_][A-Za-z0-9_]*)'),
+            re.compile(r'\b([A-Za-z_][\w<>\[\]]*?)\s+([a-z_][a-z0-9_]*)\s*\(', re.IGNORECASE),
+            re.compile(r'\b([A-Za-z_][\w<>\[\]]*?)\s+([a-z_][a-z0-9_]*)\s*[=;]', re.IGNORECASE),
         ),
         keywords=frozenset({
             "abstract", "assert", "boolean", "break", "byte", "case", "catch", "char",
@@ -139,13 +150,14 @@ LANGUAGE_CONFIGS: Sequence[LanguageConfig] = (
         color="#A97BFF",
         extensions=(".kt", ".kts"),
         strip_patterns=(
-            *STRIP_STRINGS, *STRIP_COMMENTS,
+            *STRIP_STRINGS, *STRIP_COMMENTS, *STRIP_ANNOTATIONS,
             re.compile(r'^import\s+.*$', re.MULTILINE),
             re.compile(r'^package\s+.*$', re.MULTILINE),
         ),
         identifier_patterns=(
             re.compile(r'\bfun\s+([a-z_][a-z0-9_]*)\s*[<(]', re.IGNORECASE),
             re.compile(r'\b(?:val|var)\s+([a-z_][a-z0-9_]*)'),
+            re.compile(r'\b(?:class|object|interface)\s+([A-Za-z_][A-Za-z0-9_]*)'),
         ),
         keywords=frozenset({
             "as", "break", "by", "class", "companion", "const", "constructor",
@@ -161,13 +173,15 @@ LANGUAGE_CONFIGS: Sequence[LanguageConfig] = (
         color="#178600",
         extensions=(".cs",),
         strip_patterns=(
-            *STRIP_STRINGS, *STRIP_COMMENTS,
+            *STRIP_STRINGS, *STRIP_COMMENTS, *STRIP_ANNOTATIONS,
             re.compile(r'^using\s+.*?;', re.MULTILINE),
             re.compile(r'^namespace\s+.*$', re.MULTILINE),
         ),
         identifier_patterns=(
-            re.compile(r'\b(?:void|int|long|double|float|bool|string|var|async)\s+([a-z_][a-z0-9_]*)\s*\(', re.IGNORECASE),
-            re.compile(r'\b(?:int|long|double|float|bool|string|var)\s+([a-z_][a-z0-9_]*)\s*[=;]', re.IGNORECASE),
+            re.compile(r'\b(?:class|struct|record|interface)\s+([A-Za-z_][A-Za-z0-9_]*)'),
+            re.compile(r'\b([A-Za-z_][\w<>\[\],?]*)\s+([a-z_][a-z0-9_]*)\s*\(', re.IGNORECASE),
+            re.compile(r'\b([A-Za-z_][\w<>\[\],?]*)\s+([a-z_][a-z0-9_]*)\s*[=;]', re.IGNORECASE),
+            re.compile(r'\b([A-Za-z_][\w<>\[\],?]*)\s+([A-Z][A-Za-z0-9_]*)\s*{\s*get', re.IGNORECASE),
         ),
         keywords=frozenset({
             "abstract", "as", "base", "bool", "break", "byte", "case", "catch",
@@ -196,6 +210,7 @@ LANGUAGE_CONFIGS: Sequence[LanguageConfig] = (
             re.compile(r'\bfunc\s+(?:\([^)]+\)\s*)?([a-z_][a-z0-9_]*)\s*\(', re.IGNORECASE),
             re.compile(r'\b(?:var|const)\s+([a-z_][a-z0-9_]*)'),
             re.compile(r'([a-z_][a-z0-9_]*)\s*:='),
+            re.compile(r'^\s*type\s+([A-Z][A-Za-z0-9_]*)', re.MULTILINE),
         ),
         keywords=frozenset({
             "break", "case", "chan", "const", "continue", "default", "defer", "else",
@@ -213,6 +228,7 @@ LANGUAGE_CONFIGS: Sequence[LanguageConfig] = (
         identifier_patterns=(
             re.compile(r'^\s*def\s+([a-z_][a-z0-9_!?]*)', re.MULTILINE),
             re.compile(r'@([a-z_][a-z0-9_]*)'),
+            re.compile(r'^\s*(?:class|module)\s+([A-Z][A-Za-z0-9_:]*)', re.MULTILINE),
         ),
         keywords=frozenset({
             "alias", "and", "begin", "break", "case", "class", "def", "do", "else",
@@ -234,6 +250,7 @@ LANGUAGE_CONFIGS: Sequence[LanguageConfig] = (
         identifier_patterns=(
             re.compile(r'\bfunction\s+([a-z_][a-z0-9_]*)\s*\(', re.IGNORECASE),
             re.compile(r'\$([a-z_][a-z0-9_]*)'),
+            re.compile(r'^\s*(?:class|interface|trait)\s+([A-Za-z_][A-Za-z0-9_]*)', re.MULTILINE),
         ),
         keywords=frozenset({
             "abstract", "and", "array", "as", "break", "callable", "case", "catch",
@@ -253,12 +270,13 @@ LANGUAGE_CONFIGS: Sequence[LanguageConfig] = (
         color="#F05138",
         extensions=(".swift",),
         strip_patterns=(
-            *STRIP_STRINGS, *STRIP_COMMENTS,
+            *STRIP_STRINGS, *STRIP_COMMENTS, *STRIP_ANNOTATIONS,
             re.compile(r'^import\s+\w+', re.MULTILINE),
         ),
         identifier_patterns=(
             re.compile(r'\bfunc\s+([a-z_][a-z0-9_]*)\s*[<(]', re.IGNORECASE),
             re.compile(r'\b(?:let|var)\s+([a-z_][a-z0-9_]*)'),
+            re.compile(r'^\s*(?:class|struct|enum|protocol)\s+([A-Za-z_][A-Za-z0-9_]*)', re.MULTILINE),
         ),
         keywords=frozenset({
             "as", "break", "case", "catch", "class", "continue", "defer", "deinit",
@@ -300,16 +318,21 @@ class CodeIdentifiersCard(GitHubCardBase):
         for pattern in config.strip_patterns:
             code = pattern.sub(' ', code)
         # Extract only from declaration patterns
-        names = []
-        for pattern in config.identifier_patterns:
-            for match in pattern.findall(code):
-                name = match[-1] if isinstance(match, tuple) else match
-                if 2 < len(name) < 30 and name.lower() not in config.keywords:
-                    names.append(name)
+        names = [
+            name
+            for name in self._iter_identifier_matches(config.identifier_patterns, code)
+            if 2 < len(name) < 30 and name.lower() not in config.keywords
+        ]
         return names
 
     def _should_skip(self, path: str) -> bool:
         return any(p.lower() in SKIP_PATH_PARTS for p in path.split("/"))
+
+    @staticmethod
+    def _iter_identifier_matches(patterns: Iterable[re.Pattern[str]], code: str) -> Iterable[str]:
+        for pattern in patterns:
+            for match in pattern.findall(code):
+                yield match[-1] if isinstance(match, tuple) else match
 
     def fetch_data(self):
         repos = self._fetch_all_repos()

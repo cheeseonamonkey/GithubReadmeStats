@@ -78,6 +78,48 @@ function runner() {
     assert 'message' in names
 
 
+def test_extracts_typescript_structures_and_methods():
+    card = make_card()
+    code = """
+export interface Widget { id: string }
+type Alias = { ok: boolean };
+enum Status { Ready, Done }
+class Control {
+  start() {}
+}
+"""
+    names = card._extract(code, 'typescript')
+    assert {'Widget', 'Alias', 'Status', 'Control', 'start'}.issubset(set(names))
+
+
+def test_extracts_python_classes_and_attributes():
+    card = make_card()
+    code = """
+class MyService:
+    def __init__(self):
+        self.counter = 0
+
+    async def run_task(self):
+        pass
+"""
+    names = card._extract(code, 'python')
+    assert {'MyService', 'counter', 'run_task'}.issubset(set(names))
+
+
+def test_extracts_java_classes_and_members():
+    card = make_card()
+    code = """
+import java.util.List;
+@Deprecated
+public class Sample {
+    private List<String> entries;
+    String formatValue(String input) { return input; }
+}
+"""
+    names = card._extract(code, 'java')
+    assert {'Sample', 'entries', 'formatValue'}.issubset(set(names))
+
+
 def test_should_skip_generated_or_vendor_paths():
     card = make_card()
     assert card._should_skip('dist/bundle.js') is True
@@ -123,3 +165,16 @@ public class Test {
     assert 'Generic' not in names
     assert 'myMethod' in names
     assert 'count' in names
+
+
+def test_csharp_properties_and_async_methods():
+    card = make_card()
+    code = """
+[ApiController]
+public class DemoController {
+    public string Name { get; set; }
+    private async Task RunAsync() { }
+}
+"""
+    names = card._extract(code, 'csharp')
+    assert {'DemoController', 'Name', 'RunAsync'}.issubset(set(names))
