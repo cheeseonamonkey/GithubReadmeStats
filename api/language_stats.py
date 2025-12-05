@@ -1,8 +1,6 @@
-# language_card.py
+# language_stats.py
 
 from .github_base import GitHubCardBase, escape_xml, format_bytes
-import json
-import urllib.request
 import urllib.error
 from urllib.parse import parse_qs, urlparse
 from http.server import BaseHTTPRequestHandler
@@ -107,17 +105,12 @@ class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         query = parse_qs(urlparse(self.path).query) if "?" in self.path else {}
         user = query.get("username", [""])[0]
-        card_type = query.get("type", ["languages"])[0]
-        
+
         # Extract dimensions with defaults
         width = int(query.get("width", ["350"])[0]) if query.get("width") else 350
         height = int(query.get("height", ["40"])[0]) if query.get("height") else 40
 
-        # Route to the correct card implementation
-        if card_type == "languages":
-            card = TopLanguagesCard(user, query, width, height)
-        else:
-            card = TopLanguagesCard(user, query, width, height) 
+        card = TopLanguagesCard(user, query, width, height)
 
         svg_content = card.process()
 
