@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from typing import Counter as CounterType, Iterable, List, Sequence
+from typing import Counter as CounterType, List, Sequence
 from urllib.parse import parse_qs, urlparse
 from http.server import BaseHTTPRequestHandler
 import urllib.request
@@ -19,46 +19,24 @@ class LanguageConfig:
     display_name: str
     color: str
     extensions: Sequence[str]
-    identifier_patterns: Sequence[re.Pattern[str]]
+    strip_patterns: Sequence[re.Pattern[str]]  # Remove before extraction
+    identifier_patterns: Sequence[re.Pattern[str]]  # Extract from these only
     keywords: frozenset[str]
 
 
-class IdentifierExtractor:
-    IDENTIFIER_RE = re.compile(r"\b[_A-Za-z][_A-Za-z0-9]{1,39}\b")
-
-    def __init__(self, language_configs: Sequence[LanguageConfig]):
-        self._languages = {cfg.key: cfg for cfg in language_configs}
-
-    def extract(self, code: str, lang_key: str) -> List[str]:
-        config = self._languages.get(lang_key)
-        if not config:
-            return []
-
-        names: List[str] = []
-        for pattern in config.identifier_patterns:
-            names.extend(self._normalize_matches(pattern.findall(code)))
-
-        names.extend(self.IDENTIFIER_RE.findall(code))
-        return [name for name in names if self._is_identifier(name, config)]
-
-    @staticmethod
-    def _normalize_matches(matches: Iterable[object]) -> List[str]:
-        normalized = []
-        for item in matches:
-            if isinstance(item, tuple):
-                normalized.append(str(item[-1]))
-            else:
-                normalized.append(str(item))
-        return normalized
-
-    def _is_identifier(self, name: str, config: LanguageConfig) -> bool:
-        if not (2 < len(name) < 40):
-            return False
-        if name.isupper():
-            return False
-
-        lowered = name.lower()
-        return lowered not in GLOBAL_SKIP and lowered not in config.keywords
+# Common patterns to strip
+STRIP_COMMENTS = [
+    re.compile(r'/\*.*?\*/', re.DOTALL),
+    re.compile(r'//.*?$', re.MULTILINE),
+    re.compile(r'#.*?$', re.MULTILINE),
+]
+STRIP_STRINGS = [
+    re.compile(r'"""[\s\S]*?"""'),
+    re.compile(r"'''[\s\S]*?'''"),
+    re.compile(r'"(?:[^"\\]|\\.)*"'),
+    re.compile(r"'(?:[^'\\]|\\.)*'"),
+    re.compile(r'`(?:[^`\\]|\\.)*`'),
+]
 
 
 LANGUAGE_CONFIGS: Sequence[LanguageConfig] = (
@@ -67,857 +45,242 @@ LANGUAGE_CONFIGS: Sequence[LanguageConfig] = (
         display_name="Python",
         color="#3572A5",
         extensions=(".py",),
+        strip_patterns=(
+            *STRIP_STRINGS, *STRIP_COMMENTS,
+            re.compile(r'^(?:from|import)\s+.*$', re.MULTILINE),
+        ),
         identifier_patterns=(
-            re.compile(r"^\s*def\s+([a-z_][a-zA-Z0-9_]*)\s*\(", re.MULTILINE),
-            re.compile(r"^[ \t]*([a-z_][a-zA-Z0-9_]*)\s*(?::\s*\w+)?\s*=", re.MULTILINE),
+            re.compile(r'^\s*def\s+([a-z_][a-z0-9_]*)\s*\(', re.MULTILINE | re.IGNORECASE),
+            re.compile(r'^[ \t]*([a-z_][a-z0-9_]*)\s*=', re.MULTILINE),
         ),
-        keywords=frozenset(
-            {
-                "and",
-                "as",
-                "assert",
-                "break",
-                "class",
-                "continue",
-                "def",
-                "del",
-                "elif",
-                "else",
-                "except",
-                "finally",
-                "for",
-                "from",
-                "global",
-                "if",
-                "import",
-                "in",
-                "is",
-                "lambda",
-                "len",
-                "list",
-                "nonlocal",
-                "not",
-                "or",
-                "pass",
-                "print",
-                "raise",
-                "range",
-                "return",
-                "set",
-                "try",
-                "while",
-                "with",
-                "yield",
-                "dict",
-                "tuple",
-            }
-        ),
+        keywords=frozenset({
+            "and", "as", "assert", "async", "await", "break", "class", "continue",
+            "def", "del", "elif", "else", "except", "finally", "for", "from",
+            "global", "if", "import", "in", "is", "lambda", "nonlocal", "not",
+            "or", "pass", "raise", "return", "try", "while", "with", "yield",
+            "true", "false", "none", "self", "cls",
+        }),
     ),
     LanguageConfig(
         key="javascript",
         display_name="JavaScript",
         color="#f1e05a",
         extensions=(".js", ".jsx"),
+        strip_patterns=(
+            *STRIP_STRINGS, *STRIP_COMMENTS,
+            re.compile(r'^import\s+.*?[;\n]', re.MULTILINE),
+            re.compile(r'^export\s+(?:default\s+)?(?=class|function)', re.MULTILINE),
+        ),
         identifier_patterns=(
-            re.compile(r"\b(?:const|let|var)\s+([a-z_$][a-zA-Z0-9_$]*)\s*[=;]"),
-            re.compile(r"\bfunction\s+([a-zA-Z_$][\w$]*)\s*\("),
+            re.compile(r'\b(?:const|let|var)\s+([a-z_$][a-z0-9_$]*)\s*=', re.IGNORECASE),
+            re.compile(r'\bfunction\s+([a-z_$][a-z0-9_$]*)\s*\(', re.IGNORECASE),
         ),
-        keywords=frozenset(
-            {
-                "break",
-                "case",
-                "catch",
-                "class",
-                "const",
-                "continue",
-                "debugger",
-                "default",
-                "delete",
-                "do",
-                "else",
-                "export",
-                "extends",
-                "finally",
-                "for",
-                "function",
-                "if",
-                "import",
-                "in",
-                "instanceof",
-                "let",
-                "new",
-                "return",
-                "super",
-                "switch",
-                "this",
-                "throw",
-                "try",
-                "typeof",
-                "var",
-                "void",
-                "while",
-                "with",
-                "yield",
-                "date",
-                "math",
-                "promise",
-                "object",
-                "string",
-                "number",
-                "array",
-                "boolean",
-                "error",
-                "set",
-                "map",
-                "now",
-            }
-        ),
+        keywords=frozenset({
+            "break", "case", "catch", "class", "const", "continue", "debugger",
+            "default", "delete", "do", "else", "export", "extends", "finally",
+            "for", "function", "if", "import", "in", "instanceof", "let", "new",
+            "return", "super", "switch", "this", "throw", "try", "typeof", "var",
+            "void", "while", "with", "yield", "async", "await", "true", "false",
+            "null", "undefined",
+        }),
     ),
     LanguageConfig(
         key="typescript",
         display_name="TypeScript",
         color="#2b7489",
         extensions=(".ts", ".tsx"),
+        strip_patterns=(
+            *STRIP_STRINGS, *STRIP_COMMENTS,
+            re.compile(r'^import\s+.*?[;\n]', re.MULTILINE),
+            re.compile(r'^export\s+(?:default\s+)?(?=class|function|interface|type)', re.MULTILINE),
+        ),
         identifier_patterns=(
-            re.compile(r"\b(?:const|let|var)\s+([a-z_$][a-zA-Z0-9_$]*)\s*[=;:]"),
-            re.compile(r"\bfunction\s+([a-zA-Z_$][\w$]*)\s*\("),
+            re.compile(r'\b(?:const|let|var)\s+([a-z_$][a-z0-9_$]*)\s*[=:]', re.IGNORECASE),
+            re.compile(r'\bfunction\s+([a-z_$][a-z0-9_$]*)\s*[<(]', re.IGNORECASE),
         ),
-        keywords=frozenset(
-            {
-                "abstract",
-                "any",
-                "as",
-                "asserts",
-                "async",
-                "await",
-                "boolean",
-                "break",
-                "case",
-                "catch",
-                "class",
-                "const",
-                "constructor",
-                "continue",
-                "declare",
-                "default",
-                "delete",
-                "do",
-                "else",
-                "enum",
-                "export",
-                "extends",
-                "false",
-                "finally",
-                "for",
-                "from",
-                "function",
-                "get",
-                "if",
-                "implements",
-                "import",
-                "in",
-                "infer",
-                "instanceof",
-                "interface",
-                "is",
-                "keyof",
-                "let",
-                "module",
-                "namespace",
-                "new",
-                "null",
-                "number",
-                "object",
-                "of",
-                "package",
-                "private",
-                "protected",
-                "public",
-                "readonly",
-                "require",
-                "return",
-                "set",
-                "static",
-                "string",
-                "super",
-                "switch",
-                "symbol",
-                "this",
-                "throw",
-                "true",
-                "try",
-                "type",
-                "typeof",
-                "undefined",
-                "unique",
-                "unknown",
-                "var",
-                "void",
-                "while",
-                "with",
-                "yield",
-                "date",
-                "math",
-                "promise",
-                "object",
-                "string",
-                "number",
-                "array",
-                "boolean",
-                "error",
-                "set",
-                "map",
-                "now",
-            }
-        ),
+        keywords=frozenset({
+            "abstract", "any", "as", "async", "await", "boolean", "break", "case",
+            "catch", "class", "const", "constructor", "continue", "declare", "default",
+            "delete", "do", "else", "enum", "export", "extends", "false", "finally",
+            "for", "from", "function", "if", "implements", "import", "in", "interface",
+            "is", "keyof", "let", "module", "namespace", "new", "null", "number",
+            "object", "of", "private", "protected", "public", "readonly", "return",
+            "static", "string", "super", "switch", "this", "throw", "true", "try",
+            "type", "typeof", "undefined", "var", "void", "while", "with", "yield",
+        }),
     ),
     LanguageConfig(
         key="java",
         display_name="Java",
         color="#b07219",
         extensions=(".java",),
+        strip_patterns=(
+            *STRIP_STRINGS, *STRIP_COMMENTS,
+            re.compile(r'^import\s+.*?;', re.MULTILINE),
+            re.compile(r'^package\s+.*?;', re.MULTILINE),
+        ),
         identifier_patterns=(
-            re.compile(
-                r"\b(?:public|private|protected|static|final|abstract|sealed|synchronized|native|\s)+(?:[A-Za-z_][\w<>\[\]]*\s+)+([a-z_][A-Za-z0-9_]*)\s*\("
-            ),
-            re.compile(r"\b(?:final\s+)?(?:[A-Za-z_][\w<>\[\]]*)\s+([a-z_][A-Za-z0-9_]*)\s*(?:=|;)"),
+            re.compile(r'\b(?:void|int|long|double|float|boolean|String|char|byte|short|var)\s+([a-z_][a-z0-9_]*)\s*\(', re.IGNORECASE),
+            re.compile(r'\b(?:int|long|double|float|boolean|String|char|byte|short|var)\s+([a-z_][a-z0-9_]*)\s*[=;]', re.IGNORECASE),
         ),
-        keywords=frozenset(
-            {
-                "abstract",
-                "assert",
-                "boolean",
-                "break",
-                "byte",
-                "case",
-                "catch",
-                "char",
-                "class",
-                "continue",
-                "default",
-                "do",
-                "double",
-                "else",
-                "enum",
-                "extends",
-                "final",
-                "finally",
-                "float",
-                "for",
-                "if",
-                "implements",
-                "import",
-                "instanceof",
-                "int",
-                "interface",
-                "long",
-                "native",
-                "new",
-                "null",
-                "package",
-                "private",
-                "protected",
-                "public",
-                "return",
-                "short",
-                "static",
-                "strictfp",
-                "super",
-                "switch",
-                "synchronized",
-                "this",
-                "throw",
-                "throws",
-                "transient",
-                "try",
-                "void",
-                "volatile",
-                "while",
-            }
-        ),
+        keywords=frozenset({
+            "abstract", "assert", "boolean", "break", "byte", "case", "catch", "char",
+            "class", "continue", "default", "do", "double", "else", "enum", "extends",
+            "final", "finally", "float", "for", "if", "implements", "import",
+            "instanceof", "int", "interface", "long", "native", "new", "null",
+            "package", "private", "protected", "public", "return", "short", "static",
+            "super", "switch", "synchronized", "this", "throw", "throws", "transient",
+            "try", "void", "volatile", "while", "var", "string", "true", "false",
+        }),
     ),
     LanguageConfig(
         key="kotlin",
         display_name="Kotlin",
         color="#A97BFF",
         extensions=(".kt", ".kts"),
+        strip_patterns=(
+            *STRIP_STRINGS, *STRIP_COMMENTS,
+            re.compile(r'^import\s+.*$', re.MULTILINE),
+            re.compile(r'^package\s+.*$', re.MULTILINE),
+        ),
         identifier_patterns=(
-            re.compile(r"\bfun\s+([a-zA-Z_][\w]*)\s*\("),
-            re.compile(r"\b(?:val|var)\s+([a-zA-Z_][\w]*)"),
+            re.compile(r'\bfun\s+([a-z_][a-z0-9_]*)\s*[<(]', re.IGNORECASE),
+            re.compile(r'\b(?:val|var)\s+([a-z_][a-z0-9_]*)'),
         ),
-        keywords=frozenset(
-            {
-                "as",
-                "break",
-                "by",
-                "class",
-                "companion",
-                "const",
-                "constructor",
-                "continue",
-                "do",
-                "else",
-                "enum",
-                "false",
-                "for",
-                "fun",
-                "if",
-                "import",
-                "in",
-                "interface",
-                "is",
-                "null",
-                "object",
-                "package",
-                "private",
-                "protected",
-                "public",
-                "return",
-                "sealed",
-                "super",
-                "this",
-                "throw",
-                "true",
-                "try",
-                "typealias",
-                "val",
-                "var",
-                "when",
-                "while",
-            }
-        ),
+        keywords=frozenset({
+            "as", "break", "by", "class", "companion", "const", "constructor",
+            "continue", "do", "else", "enum", "false", "for", "fun", "if", "import",
+            "in", "interface", "is", "null", "object", "package", "private",
+            "protected", "public", "return", "sealed", "super", "this", "throw",
+            "true", "try", "typealias", "val", "var", "when", "while",
+        }),
     ),
     LanguageConfig(
-        key="c#",
+        key="csharp",
         display_name="C#",
         color="#178600",
         extensions=(".cs",),
+        strip_patterns=(
+            *STRIP_STRINGS, *STRIP_COMMENTS,
+            re.compile(r'^using\s+.*?;', re.MULTILINE),
+            re.compile(r'^namespace\s+.*$', re.MULTILINE),
+        ),
         identifier_patterns=(
-            re.compile(r"\b(?:public|private|protected|internal|static|readonly|sealed|async|virtual|override|partial|new|const|unsafe)\s+(?:[A-Za-z_][\w<>\[\],?]*\s+)+([a-z_][A-Za-z0-9_]*)\s*\("),
-            re.compile(r"\b(?:var|dynamic|[A-Za-z_][\w<>\[\],?]*)\s+([a-z_][A-Za-z0-9_]*)\s*(?:=|;)"),
+            re.compile(r'\b(?:void|int|long|double|float|bool|string|var|async)\s+([a-z_][a-z0-9_]*)\s*\(', re.IGNORECASE),
+            re.compile(r'\b(?:int|long|double|float|bool|string|var)\s+([a-z_][a-z0-9_]*)\s*[=;]', re.IGNORECASE),
         ),
-        keywords=frozenset(
-            {
-                "abstract",
-                "as",
-                "base",
-                "bool",
-                "break",
-                "byte",
-                "case",
-                "catch",
-                "char",
-                "checked",
-                "class",
-                "const",
-                "continue",
-                "decimal",
-                "default",
-                "delegate",
-                "do",
-                "double",
-                "else",
-                "enum",
-                "event",
-                "explicit",
-                "extern",
-                "false",
-                "finally",
-                "fixed",
-                "float",
-                "for",
-                "foreach",
-                "goto",
-                "if",
-                "implicit",
-                "in",
-                "int",
-                "interface",
-                "internal",
-                "is",
-                "lock",
-                "long",
-                "namespace",
-                "new",
-                "null",
-                "object",
-                "operator",
-                "out",
-                "override",
-                "params",
-                "private",
-                "protected",
-                "public",
-                "readonly",
-                "ref",
-                "return",
-                "sbyte",
-                "sealed",
-                "short",
-                "sizeof",
-                "stackalloc",
-                "static",
-                "string",
-                "struct",
-                "switch",
-                "this",
-                "throw",
-                "true",
-                "try",
-                "typeof",
-                "uint",
-                "ulong",
-                "unchecked",
-                "unsafe",
-                "ushort",
-                "using",
-                "virtual",
-                "void",
-                "volatile",
-                "while",
-            }
-        ),
+        keywords=frozenset({
+            "abstract", "as", "base", "bool", "break", "byte", "case", "catch",
+            "char", "class", "const", "continue", "decimal", "default", "delegate",
+            "do", "double", "else", "enum", "event", "explicit", "extern", "false",
+            "finally", "fixed", "float", "for", "foreach", "goto", "if", "implicit",
+            "in", "int", "interface", "internal", "is", "lock", "long", "namespace",
+            "new", "null", "object", "operator", "out", "override", "params",
+            "private", "protected", "public", "readonly", "ref", "return", "sbyte",
+            "sealed", "short", "sizeof", "static", "string", "struct", "switch",
+            "this", "throw", "true", "try", "typeof", "uint", "ulong", "unchecked",
+            "unsafe", "ushort", "using", "var", "virtual", "void", "volatile", "while",
+        }),
     ),
     LanguageConfig(
         key="go",
         display_name="Go",
         color="#00ADD8",
         extensions=(".go",),
+        strip_patterns=(
+            *STRIP_STRINGS, *STRIP_COMMENTS,
+            re.compile(r'^import\s+(?:\([\s\S]*?\)|".*?")', re.MULTILINE),
+            re.compile(r'^package\s+\w+', re.MULTILINE),
+        ),
         identifier_patterns=(
-            re.compile(r"\bfunc\s+([A-Za-z_][A-Za-z0-9_]*)\s*\("),
-            re.compile(r"\b(?:var|const)\s+([a-z_][A-Za-z0-9_]*)"),
+            re.compile(r'\bfunc\s+(?:\([^)]+\)\s*)?([a-z_][a-z0-9_]*)\s*\(', re.IGNORECASE),
+            re.compile(r'\b(?:var|const)\s+([a-z_][a-z0-9_]*)'),
+            re.compile(r'([a-z_][a-z0-9_]*)\s*:='),
         ),
-        keywords=frozenset(
-            {
-                "break",
-                "case",
-                "chan",
-                "const",
-                "continue",
-                "default",
-                "defer",
-                "else",
-                "fallthrough",
-                "for",
-                "func",
-                "go",
-                "goto",
-                "if",
-                "import",
-                "interface",
-                "map",
-                "package",
-                "range",
-                "return",
-                "select",
-                "struct",
-                "switch",
-                "type",
-                "var",
-            }
-        ),
-    ),
-    LanguageConfig(
-        key="c++",
-        display_name="C++",
-        color="#f34b7d",
-        extensions=(".cpp", ".cc", ".hpp"),
-        identifier_patterns=(
-            re.compile(r"\b(?:int|float|double|char|bool|auto|long|short|unsigned|std::\w+)\s+([a-z_][A-Za-z0-9_]*)\s*(?:=|;)", re.MULTILINE),
-            re.compile(r"\b([a-z_][A-Za-z0-9_]*)\s*\([^;]*\)\s*\{"),
-        ),
-        keywords=frozenset(
-            {
-                "alignas",
-                "alignof",
-                "and",
-                "asm",
-                "auto",
-                "bitand",
-                "bitor",
-                "bool",
-                "break",
-                "case",
-                "catch",
-                "char",
-                "class",
-                "compl",
-                "const",
-                "constexpr",
-                "continue",
-                "decltype",
-                "default",
-                "delete",
-                "do",
-                "double",
-                "dynamic_cast",
-                "else",
-                "enum",
-                "explicit",
-                "export",
-                "extern",
-                "false",
-                "float",
-                "for",
-                "friend",
-                "goto",
-                "if",
-                "inline",
-                "int",
-                "long",
-                "mutable",
-                "namespace",
-                "new",
-                "noexcept",
-                "not",
-                "nullptr",
-                "operator",
-                "or",
-                "private",
-                "protected",
-                "public",
-                "register",
-                "reinterpret_cast",
-                "return",
-                "short",
-                "signed",
-                "sizeof",
-                "static",
-                "static_cast",
-                "struct",
-                "switch",
-                "template",
-                "this",
-                "throw",
-                "true",
-                "try",
-                "typedef",
-                "typeid",
-                "typename",
-                "union",
-                "unsigned",
-                "using",
-                "virtual",
-                "void",
-                "volatile",
-                "wchar_t",
-                "while",
-                "xor",
-            }
-        ),
-    ),
-    LanguageConfig(
-        key="c",
-        display_name="C",
-        color="#555555",
-        extensions=(".c", ".h"),
-        identifier_patterns=(
-            re.compile(r"\b(?:int|float|double|char|bool|long|short|unsigned|struct\s+\w+)\s+([a-z_][A-Za-z0-9_]*)\s*(?:=|;)", re.MULTILINE),
-            re.compile(r"\b([a-z_][A-Za-z0-9_]*)\s*\([^;]*\)\s*\{"),
-        ),
-        keywords=frozenset(
-            {
-                "auto",
-                "break",
-                "case",
-                "char",
-                "const",
-                "continue",
-                "default",
-                "do",
-                "double",
-                "else",
-                "enum",
-                "extern",
-                "float",
-                "for",
-                "goto",
-                "if",
-                "inline",
-                "int",
-                "long",
-                "register",
-                "return",
-                "short",
-                "signed",
-                "sizeof",
-                "static",
-                "struct",
-                "switch",
-                "typedef",
-                "union",
-                "unsigned",
-                "void",
-                "volatile",
-                "while",
-            }
-        ),
+        keywords=frozenset({
+            "break", "case", "chan", "const", "continue", "default", "defer", "else",
+            "fallthrough", "for", "func", "go", "goto", "if", "import", "interface",
+            "map", "package", "range", "return", "select", "struct", "switch", "type",
+            "var", "nil", "true", "false", "err",
+        }),
     ),
     LanguageConfig(
         key="ruby",
         display_name="Ruby",
         color="#701516",
         extensions=(".rb",),
+        strip_patterns=(*STRIP_STRINGS, *STRIP_COMMENTS,),
         identifier_patterns=(
-            re.compile(r"^\s*def\s+([a-zA-Z_][\w]*)", re.MULTILINE),
-            re.compile(r"@([a-zA-Z_][\w]*)"),
+            re.compile(r'^\s*def\s+([a-z_][a-z0-9_!?]*)', re.MULTILINE),
+            re.compile(r'@([a-z_][a-z0-9_]*)'),
         ),
-        keywords=frozenset(
-            {
-                "__FILE__",
-                "__LINE__",
-                "BEGIN",
-                "END",
-                "alias",
-                "and",
-                "begin",
-                "break",
-                "case",
-                "class",
-                "def",
-                "defined?",
-                "do",
-                "else",
-                "elsif",
-                "end",
-                "ensure",
-                "false",
-                "for",
-                "if",
-                "in",
-                "module",
-                "next",
-                "nil",
-                "not",
-                "or",
-                "redo",
-                "rescue",
-                "retry",
-                "return",
-                "self",
-                "super",
-                "then",
-                "true",
-                "undef",
-                "unless",
-                "until",
-                "when",
-                "while",
-                "yield",
-            }
-        ),
+        keywords=frozenset({
+            "alias", "and", "begin", "break", "case", "class", "def", "do", "else",
+            "elsif", "end", "ensure", "false", "for", "if", "in", "module", "next",
+            "nil", "not", "or", "redo", "rescue", "retry", "return", "self", "super",
+            "then", "true", "undef", "unless", "until", "when", "while", "yield",
+        }),
     ),
     LanguageConfig(
         key="php",
         display_name="PHP",
         color="#4F5D95",
         extensions=(".php",),
+        strip_patterns=(
+            *STRIP_STRINGS, *STRIP_COMMENTS,
+            re.compile(r'^use\s+.*?;', re.MULTILINE),
+            re.compile(r'^namespace\s+.*?;', re.MULTILINE),
+        ),
         identifier_patterns=(
-            re.compile(r"\bfunction\s+([a-zA-Z_][\w]*)\s*\("),
-            re.compile(r"\$([a-zA-Z_][\w]*)"),
+            re.compile(r'\bfunction\s+([a-z_][a-z0-9_]*)\s*\(', re.IGNORECASE),
+            re.compile(r'\$([a-z_][a-z0-9_]*)'),
         ),
-        keywords=frozenset(
-            {
-                "abstract",
-                "and",
-                "array",
-                "as",
-                "break",
-                "callable",
-                "case",
-                "catch",
-                "class",
-                "clone",
-                "const",
-                "continue",
-                "declare",
-                "default",
-                "die",
-                "do",
-                "echo",
-                "else",
-                "elseif",
-                "empty",
-                "endfor",
-                "endforeach",
-                "endif",
-                "endswitch",
-                "endwhile",
-                "eval",
-                "exit",
-                "extends",
-                "final",
-                "finally",
-                "for",
-                "foreach",
-                "function",
-                "global",
-                "goto",
-                "if",
-                "implements",
-                "include",
-                "include_once",
-                "instanceof",
-                "insteadof",
-                "interface",
-                "isset",
-                "list",
-                "namespace",
-                "new",
-                "or",
-                "print",
-                "private",
-                "protected",
-                "public",
-                "require",
-                "require_once",
-                "return",
-                "static",
-                "switch",
-                "throw",
-                "trait",
-                "try",
-                "unset",
-                "use",
-                "var",
-                "while",
-                "xor",
-                "yield",
-            }
-        ),
+        keywords=frozenset({
+            "abstract", "and", "array", "as", "break", "callable", "case", "catch",
+            "class", "clone", "const", "continue", "declare", "default", "die", "do",
+            "echo", "else", "elseif", "empty", "endfor", "endforeach", "endif",
+            "endswitch", "endwhile", "eval", "exit", "extends", "final", "finally",
+            "for", "foreach", "function", "global", "goto", "if", "implements",
+            "include", "instanceof", "insteadof", "interface", "isset", "list",
+            "namespace", "new", "or", "print", "private", "protected", "public",
+            "require", "return", "static", "switch", "throw", "trait", "try", "unset",
+            "use", "var", "while", "xor", "yield", "this", "self",
+        }),
     ),
     LanguageConfig(
         key="swift",
         display_name="Swift",
         color="#F05138",
         extensions=(".swift",),
+        strip_patterns=(
+            *STRIP_STRINGS, *STRIP_COMMENTS,
+            re.compile(r'^import\s+\w+', re.MULTILINE),
+        ),
         identifier_patterns=(
-            re.compile(r"\bfunc\s+([a-zA-Z_][\w]*)\s*\("),
-            re.compile(r"\b(?:let|var)\s+([a-zA-Z_][\w]*)"),
+            re.compile(r'\bfunc\s+([a-z_][a-z0-9_]*)\s*[<(]', re.IGNORECASE),
+            re.compile(r'\b(?:let|var)\s+([a-z_][a-z0-9_]*)'),
         ),
-        keywords=frozenset(
-            {
-                "as",
-                "associatedtype",
-                "break",
-                "case",
-                "catch",
-                "class",
-                "continue",
-                "defer",
-                "deinit",
-                "do",
-                "else",
-                "enum",
-                "extension",
-                "fallthrough",
-                "false",
-                "for",
-                "func",
-                "guard",
-                "if",
-                "import",
-                "in",
-                "init",
-                "inout",
-                "internal",
-                "let",
-                "nil",
-                "open",
-                "operator",
-                "private",
-                "protocol",
-                "public",
-                "repeat",
-                "return",
-                "self",
-                "static",
-                "struct",
-                "subscript",
-                "switch",
-                "throw",
-                "throws",
-                "true",
-                "try",
-                "typealias",
-                "var",
-                "where",
-                "while",
-                "associatedtype",
-            }
-        ),
+        keywords=frozenset({
+            "as", "break", "case", "catch", "class", "continue", "defer", "deinit",
+            "do", "else", "enum", "extension", "fallthrough", "false", "for", "func",
+            "guard", "if", "import", "in", "init", "inout", "internal", "let", "nil",
+            "open", "operator", "private", "protocol", "public", "repeat", "return",
+            "self", "static", "struct", "subscript", "switch", "throw", "throws",
+            "true", "try", "typealias", "var", "where", "while",
+        }),
     ),
 )
 
-EXTENSION_TO_LANG = {
-    ext: cfg.key for cfg in LANGUAGE_CONFIGS for ext in cfg.extensions
-}
+EXTENSION_TO_LANG = {ext: cfg.key for cfg in LANGUAGE_CONFIGS for ext in cfg.extensions}
 LANGUAGE_COLORS = {cfg.key: cfg.color for cfg in LANGUAGE_CONFIGS}
 LANGUAGE_NAMES = {cfg.key: cfg.display_name for cfg in LANGUAGE_CONFIGS}
+LANG_MAP = {cfg.key: cfg for cfg in LANGUAGE_CONFIGS}
 
-SKIP_PATH_PARTS = frozenset(
-    {
-        "__pycache__",
-        "node_modules",
-        "dist",
-        "build",
-        "vendor",
-        "coverage",
-        "site-packages",
-        ".git",
-        "out",
-        "target",
-    }
-)
-
-GLOBAL_SKIP = frozenset(
-    {
-        "i",
-        "j",
-        "k",
-        "x",
-        "y",
-        "z",
-        "e",
-        "t",
-        "a",
-        "b",
-        "c",
-        "d",
-        "f",
-        "g",
-        "h",
-        "id",
-        "el",
-        "err",
-        "fn",
-        "cb",
-        "fs",
-        "os",
-        "db",
-        "api",
-        "app",
-        "env",
-        "ctx",
-        "req",
-        "res",
-        "self",
-        "cls",
-        "args",
-        "kwargs",
-        "this",
-        "true",
-        "false",
-        "null",
-        "none",
-        "undefined",
-        "console",
-        "module",
-        "exports",
-        "main",
-        "init",
-    }
-)
+SKIP_PATH_PARTS = frozenset({
+    "__pycache__", "node_modules", "dist", "build", "vendor", "coverage",
+    "site-packages", ".git", "out", "target", "bin", "obj", "packages",
+    "test", "tests", "__tests__", "fixtures", "mocks", "spec",
+})
 
 
 class CodeIdentifiersCard(GitHubCardBase):
@@ -928,7 +291,25 @@ class CodeIdentifiersCard(GitHubCardBase):
         self.card_width = width
         self.header_height = header_height
         self.file_timeout = 3
-        self.extractor = IdentifierExtractor(LANGUAGE_CONFIGS)
+
+    def _extract(self, code: str, lang_key: str) -> List[str]:
+        config = LANG_MAP.get(lang_key)
+        if not config:
+            return []
+        # Strip noise first
+        for pattern in config.strip_patterns:
+            code = pattern.sub(' ', code)
+        # Extract only from declaration patterns
+        names = []
+        for pattern in config.identifier_patterns:
+            for match in pattern.findall(code):
+                name = match[-1] if isinstance(match, tuple) else match
+                if 2 < len(name) < 30 and name.lower() not in config.keywords:
+                    names.append(name)
+        return names
+
+    def _should_skip(self, path: str) -> bool:
+        return any(p.lower() in SKIP_PATH_PARTS for p in path.split("/"))
 
     def fetch_data(self):
         repos = self._fetch_all_repos()
@@ -943,14 +324,10 @@ class CodeIdentifiersCard(GitHubCardBase):
                 f"https://raw.githubusercontent.com/{self.user}/{repo}/HEAD/{path}", headers=HEADERS
             )
             with urllib.request.urlopen(req, timeout=self.file_timeout) as resp:
-                content = resp.read().decode("utf-8", errors="ignore")
-            lang_key = EXTENSION_TO_LANG[ext]
-            return lang_key, content
+                return EXTENSION_TO_LANG[ext], resp.read().decode("utf-8", errors="ignore")
 
         def fetch_repo(repo: str):
-            results: list[tuple[str, str]] = []
-            files_scanned = 0
-            lang_counts: CounterType[str] = CounterType()
+            results, files_scanned, lang_counts = [], 0, CounterType()
             try:
                 tree = self._make_request(
                     f"https://api.github.com/repos/{self.user}/{repo}/git/trees/HEAD?recursive=1"
@@ -962,12 +339,11 @@ class CodeIdentifiersCard(GitHubCardBase):
                     for ext in [next((e for e in EXTENSION_TO_LANG if f["path"].endswith(e)), None)]
                     if ext
                 ]
-
                 if not files:
                     return results, files_scanned, lang_counts
 
                 with ThreadPoolExecutor(max_workers=min(6, len(files))) as file_ex:
-                    futures = {file_ex.submit(fetch_file, repo, path, ext): (path, ext) for path, ext in files}
+                    futures = {file_ex.submit(fetch_file, repo, path, ext): ext for path, ext in files}
                     for future in as_completed(futures):
                         try:
                             lang_key, content = future.result()
@@ -988,12 +364,10 @@ class CodeIdentifiersCard(GitHubCardBase):
                 for name, lang in items:
                     id_langs.setdefault(name, CounterType())[lang] += 1
 
-        scored = []
-        for name, lang_counts in id_langs.items():
-            total = sum(lang_counts.values())
-            dominant = lang_counts.most_common(1)[0][0]
-            scored.append({"name": name, "count": total, "lang": dominant})
-
+        scored = [
+            {"name": n, "count": sum(lc.values()), "lang": lc.most_common(1)[0][0]}
+            for n, lc in id_langs.items()
+        ]
         scored.sort(key=lambda x: x["count"], reverse=True)
         return {
             "items": scored[:10],
@@ -1003,8 +377,7 @@ class CodeIdentifiersCard(GitHubCardBase):
         }
 
     def _fetch_all_repos(self):
-        page = 1
-        repos = []
+        page, repos = 1, []
         while True:
             batch = self._make_request(
                 f"https://api.github.com/users/{self.user}/repos?per_page=100&type=owner&sort=updated&page={page}"
@@ -1017,29 +390,25 @@ class CodeIdentifiersCard(GitHubCardBase):
             page += 1
         return repos
 
-    def _extract(self, code: str, lang_key: str):
-        return self.extractor.extract(code, lang_key)
-
     def process(self):
         if not self.user:
             return self._render_error("Missing ?username= parameter")
         try:
             data = self.fetch_data()
-            title = f"{self.user}'s Top Identifiers"
             body, height = self.render_body(data)
-            return self._render_frame(title, body, height)
+            return self._render_frame(f"{self.user}'s Top Identifiers", body, height)
         except Exception:
             import traceback
             return self._render_error(traceback.format_exc())
 
     def render_body(self, stats):
-        items = stats.get("items") if isinstance(stats, dict) else []
-        language_counts = stats.get("language_files", CounterType()) if isinstance(stats, dict) else CounterType()
-        repo_count = stats.get("repo_count", 0) if isinstance(stats, dict) else 0
-        file_count = stats.get("file_count", 0) if isinstance(stats, dict) else 0
+        items = stats.get("items", [])
+        language_counts = stats.get("language_files", CounterType())
+        repo_count = stats.get("repo_count", 0)
+        file_count = stats.get("file_count", 0)
 
         bar_h, row_h, bar_w = 12, 20, 200
-        svg: list[str] = []
+        svg = []
 
         if not items:
             svg.append(f'<text x="{self.padding}" y="20" class="stat-value">No identifiers found.</text>')
@@ -1049,65 +418,41 @@ class CodeIdentifiersCard(GitHubCardBase):
             for i, item in enumerate(items):
                 y = 10 + i * row_h
                 w = (item["count"] / max_count) * bar_w
-                color = self._color_for_lang(item["lang"])
-
-                svg.append(
-                    f"""
-                    <g transform=\"translate({self.padding},{y})\">
-                        <text x=\"0\" y=\"{bar_h-2}\" class=\"stat-name\">{escape_xml(item['name'])}</text>
-                        <rect x=\"110\" y=\"0\" width=\"{bar_w}\" height=\"{bar_h}\" rx=\"3\" fill=\"#21262d\"/>
-                        <rect x=\"110\" y=\"0\" width=\"{max(w,2):.2f}\" height=\"{bar_h}\" rx=\"3\" fill=\"{color}\"/>
-                        <text x=\"{110+bar_w+10}\" y=\"{bar_h-2}\" class=\"stat-value\">{item['count']}</text>
-                    </g>"""
-                )
-
+                color = LANGUAGE_COLORS.get(item["lang"], "#58a6ff")
+                svg.append(f'''
+                    <g transform="translate({self.padding},{y})">
+                        <text x="0" y="{bar_h-2}" class="stat-name">{escape_xml(item['name'])}</text>
+                        <rect x="110" y="0" width="{bar_w}" height="{bar_h}" rx="3" fill="#21262d"/>
+                        <rect x="110" y="0" width="{max(w,2):.2f}" height="{bar_h}" rx="3" fill="{color}"/>
+                        <text x="{110+bar_w+10}" y="{bar_h-2}" class="stat-value">{item['count']}</text>
+                    </g>''')
             body_height = len(items) * row_h + 10
 
         legend_svg, legend_height = self._render_legend(language_counts, y_offset=body_height + 10)
         svg.append(legend_svg)
 
         meta_y = body_height + legend_height + 25
-        svg.append(
-            f'<text x="{self.padding}" y="{meta_y}" class="stat-value">{repo_count} repos • {file_count} files scanned</text>'
-        )
-
-        total_height = meta_y + 10
-        return "\n".join(svg), total_height
-
-    def _color_for_lang(self, lang_key: str):
-        return LANGUAGE_COLORS.get(lang_key, "#58a6ff")
-
-    def _should_skip(self, path: str):
-        parts = [p.lower() for p in path.split("/") if p]
-        return any(part in SKIP_PATH_PARTS for part in parts)
+        svg.append(f'<text x="{self.padding}" y="{meta_y}" class="stat-value">{repo_count} repos • {file_count} files scanned</text>')
+        return "\n".join(svg), meta_y + 10
 
     def _render_legend(self, language_counts: CounterType[str], y_offset: int):
         if not language_counts:
             return "", 0
-
         items = language_counts.most_common()
-        col_width = 140
-        items_per_row = max(1, (self.card_width - (2 * self.padding)) // col_width)
+        col_width, items_per_row = 140, max(1, (self.card_width - 2 * self.padding) // 140)
         rows = (len(items) + items_per_row - 1) // items_per_row
         svg_parts = [f'<text x="{self.padding}" y="{y_offset}" class="stat-name">Legend</text>']
 
         for idx, (lang_key, count) in enumerate(items):
-            col = idx % items_per_row
-            row = idx // items_per_row
-            x = self.padding + (col * col_width)
-            y = y_offset + 12 + row * 18
-            color = self._color_for_lang(lang_key)
-            lang_name = LANGUAGE_NAMES.get(lang_key, lang_key)
-            svg_parts.append(
-                f"""
-                <g transform=\"translate({x},{y})\">
-                    <rect x=\"0\" y=\"-10\" width=\"12\" height=\"12\" rx=\"2\" fill=\"{color}\" />
-                    <text x=\"18\" y=\"0\" class=\"stat-value\">{escape_xml(lang_name)} ({count})</text>
-                </g>"""
-            )
-
-        height = rows * 18 + 18
-        return "\n".join(svg_parts), height
+            x = self.padding + (idx % items_per_row) * col_width
+            y = y_offset + 12 + (idx // items_per_row) * 18
+            color = LANGUAGE_COLORS.get(lang_key, "#58a6ff")
+            svg_parts.append(f'''
+                <g transform="translate({x},{y})">
+                    <rect x="0" y="-10" width="12" height="12" rx="2" fill="{color}"/>
+                    <text x="18" y="0" class="stat-value">{escape_xml(LANGUAGE_NAMES.get(lang_key, lang_key))} ({count})</text>
+                </g>''')
+        return "\n".join(svg_parts), rows * 18 + 18
 
 
 def _respond_with_card(handler: BaseHTTPRequestHandler):
