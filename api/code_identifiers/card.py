@@ -301,6 +301,25 @@ SKIP_PATH_PARTS = frozenset({
 })
 
 
+GLOBAL_STOPWORDS = frozenset({
+    "data",
+    "file",
+    "item",
+    "items",
+    "main",
+    "message",
+    "msg",
+    "name",
+    "row",
+    "rows",
+    "system",
+    "uri",
+    "url",
+    "value",
+    "view",
+})
+
+
 class CodeIdentifiersCard(GitHubCardBase):
     MAX_WORKERS = 8
 
@@ -308,6 +327,7 @@ class CodeIdentifiersCard(GitHubCardBase):
         super().__init__(username, query_params)
         self.card_width = width
         self.header_height = header_height
+        self.padding = 16
         self.file_timeout = 3
 
     def _extract(self, code: str, lang_key: str) -> List[str]:
@@ -321,9 +341,11 @@ class CodeIdentifiersCard(GitHubCardBase):
         names = [
             name
             for name in self._iter_identifier_matches(config.identifier_patterns, code)
-            if 2 < len(name) < 30 and name.lower() not in config.keywords
+            if 2 < len(name) < 30
+            and name.lower() not in config.keywords
+            and name.lower() not in GLOBAL_STOPWORDS
         ]
-        return names
+        return list(dict.fromkeys(names))
 
     def _should_skip(self, path: str) -> bool:
         return any(p.lower() in SKIP_PATH_PARTS for p in path.split("/"))
@@ -387,13 +409,19 @@ class CodeIdentifiersCard(GitHubCardBase):
                 for name, lang in items:
                     id_langs.setdefault(name, CounterType())[lang] += 1
 
+        limit = 15
+        try:
+            limit = max(1, min(50, int(self.params.get("count", [limit])[0])))
+        except (TypeError, ValueError):
+            pass
+
         scored = [
             {"name": n, "count": sum(lc.values()), "lang": lc.most_common(1)[0][0]}
             for n, lc in id_langs.items()
         ]
         scored.sort(key=lambda x: x["count"], reverse=True)
         return {
-            "items": scored[:10],
+            "items": scored[:limit],
             "language_files": lang_file_counts,
             "repo_count": len(repo_names),
             "file_count": total_files,
@@ -430,7 +458,7 @@ class CodeIdentifiersCard(GitHubCardBase):
         repo_count = stats.get("repo_count", 0)
         file_count = stats.get("file_count", 0)
 
-        bar_h, row_h, bar_w = 12, 20, 200
+        bar_h, row_h, bar_w = 10, 16, 200
         svg = []
 
         if not items:
@@ -439,7 +467,7 @@ class CodeIdentifiersCard(GitHubCardBase):
         else:
             max_count = max(s["count"] for s in items)
             for i, item in enumerate(items):
-                y = 10 + i * row_h
+                y = 8 + i * row_h
                 w = (item["count"] / max_count) * bar_w
                 color = LANGUAGE_COLORS.get(item["lang"], "#58a6ff")
                 svg.append(f'''
@@ -449,7 +477,7 @@ class CodeIdentifiersCard(GitHubCardBase):
                         <rect x="110" y="0" width="{max(w,2):.2f}" height="{bar_h}" rx="3" fill="{color}"/>
                         <text x="{110+bar_w+10}" y="{bar_h-2}" class="stat-value">{item['count']}</text>
                     </g>''')
-            body_height = len(items) * row_h + 10
+            body_height = len(items) * row_h + 8
 
         legend_svg, legend_height = self._render_legend(language_counts, y_offset=body_height + 10)
         svg.append(legend_svg)
@@ -462,20 +490,20 @@ class CodeIdentifiersCard(GitHubCardBase):
         if not language_counts:
             return "", 0
         items = language_counts.most_common()
-        col_width, items_per_row = 140, max(1, (self.card_width - 2 * self.padding) // 140)
+        col_width, items_per_row = 130, max(1, (self.card_width - 2 * self.padding) // 130)
         rows = (len(items) + items_per_row - 1) // items_per_row
         svg_parts = [f'<text x="{self.padding}" y="{y_offset}" class="stat-name">Legend</text>']
 
         for idx, (lang_key, count) in enumerate(items):
             x = self.padding + (idx % items_per_row) * col_width
-            y = y_offset + 12 + (idx // items_per_row) * 18
+            y = y_offset + 10 + (idx // items_per_row) * 16
             color = LANGUAGE_COLORS.get(lang_key, "#58a6ff")
             svg_parts.append(f'''
                 <g transform="translate({x},{y})">
                     <rect x="0" y="-10" width="12" height="12" rx="2" fill="{color}"/>
                     <text x="18" y="0" class="stat-value">{escape_xml(LANGUAGE_NAMES.get(lang_key, lang_key))} ({count})</text>
                 </g>''')
-        return "\n".join(svg_parts), rows * 18 + 18
+        return "\n".join(svg_parts), rows * 16 + 16
 
 
 def _respond_with_card(handler: BaseHTTPRequestHandler):
