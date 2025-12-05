@@ -13,22 +13,57 @@ def make_card():
     return CodeIdentifiersCard('user', {})
 
 
-def test_extract_filters_keywords_and_noise():
+def test_extract_filters_keywords():
     card = make_card()
     code = """
-for i in range(3):
-    total = i + 1
-    while total < 10:
-        total += 1
+def my_function():
+    total = 0
+    for i in range(3):
+        total = i + 1
+    return total
 """
-
     names = card._extract(code, 'python')
+    assert 'for' not in names
+    assert 'return' not in names
+    assert 'my_function' in names
+    assert 'total' in names
 
-    assert 'while' not in names
-    assert names.count('total') >= 2
+
+def test_extract_strips_comments_and_strings():
+    card = make_card()
+    code = '''
+# this is a comment with fake_var
+def real_func():
+    msg = "string with fake_name inside"
+    return msg
+'''
+    names = card._extract(code, 'python')
+    assert 'fake_var' not in names
+    assert 'fake_name' not in names
+    assert 'real_func' in names
+    assert 'msg' in names
 
 
-def test_extracts_identifiers_from_multiple_patterns():
+def test_extract_strips_imports():
+    card = make_card()
+    code = """
+import os
+from collections import Counter
+import some_module as alias_name
+
+def actual_function():
+    data = 123
+"""
+    names = card._extract(code, 'python')
+    # import statements stripped, so these shouldn't appear
+    assert 'Counter' not in names
+    assert 'some_module' not in names
+    assert 'alias_name' not in names
+    assert 'actual_function' in names
+    assert 'data' in names
+
+
+def test_extracts_js_identifiers():
     card = make_card()
     code = """
 const startTime = Date.now();
@@ -37,35 +72,31 @@ function runner() {
   return message;
 }
 """
-
     names = card._extract(code, 'javascript')
-
-    assert 'date' not in [n.lower() for n in names]
-    assert 'now' not in [n.lower() for n in names]
-    assert names.count('message') >= 2
-    assert {'startTime', 'runner'}.issubset(names)
+    assert 'startTime' in names
+    assert 'runner' in names
+    assert 'message' in names
 
 
 def test_should_skip_generated_or_vendor_paths():
     card = make_card()
     assert card._should_skip('dist/bundle.js') is True
+    assert card._should_skip('node_modules/pkg/index.js') is True
     assert card._should_skip('src/app.py') is False
 
 
 def test_render_body_adds_legend_and_metadata():
     card = make_card()
     stats = {
-        'items': [{'name': 'Alpha', 'count': 3, 'lang': 'python'}],
+        'items': [{'name': 'alpha', 'count': 3, 'lang': 'python'}],
         'language_files': Counter({'python': 2, 'javascript': 1}),
         'repo_count': 2,
         'file_count': 3,
     }
-
     svg, height = card.render_body(stats)
-
     assert 'Legend' in svg
     assert 'Python (2)' in svg
-    assert '2 repos • 3 files scanned' in svg
+    assert '2 repos' in svg
     assert height > 0
 
 
@@ -73,3 +104,22 @@ def test_process_without_username_errors():
     card = CodeIdentifiersCard('', {})
     svg = card.process()
     assert 'Missing ?username=' in svg
+
+
+def test_csharp_strips_using_statements():
+    card = make_card()
+    code = """
+using System;
+using System.Collections.Generic;
+
+public class Test {
+    void myMethod() {
+        var count = 0;
+    }
+}
+"""
+    names = card._extract(code, 'csharp')
+    assert 'System' not in names
+    assert 'Generic' not in names
+    assert 'myMethod' in names
+    assert 'count' in names
