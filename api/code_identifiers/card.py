@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Counter as CounterType
 from urllib.parse import parse_qs, urlparse
 from http.server import BaseHTTPRequestHandler
@@ -28,6 +29,13 @@ class IdentifierMatch:
     lang: str
 
 
+@lru_cache(maxsize=256)
+def _cached_fetch_file(url: str, timeout: int) -> str:
+    req = urllib.request.Request(url, headers=HEADERS)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.read().decode("utf-8", errors="ignore")
+
+
 class CodeIdentifiersCard(GitHubCardBase):
     MAX_WORKERS = 8
 
@@ -38,6 +46,17 @@ class CodeIdentifiersCard(GitHubCardBase):
         self.padding = 16
         self.file_timeout = 3
         self.extractor = IdentifierExtractor()
+        self.filters = self._parse_filters(query_params)
+
+    @staticmethod
+    def _parse_filters(query_params: dict) -> list[str]:
+        filters: list[str] = []
+        for raw in query_params.get("filter", []):
+            for term in raw.split(","):
+                cleaned = term.strip().lstrip("@")
+                if cleaned:
+                    filters.append(cleaned.casefold())
+        return filters
 
     def _extract(self, code: str, lang_key: str):
         return self.extractor.extract(code, lang_key)
@@ -46,11 +65,17 @@ class CodeIdentifiersCard(GitHubCardBase):
         return self.extractor.should_skip(path)
 
     def _fetch_file(self, repo: str, path: str, ext: str):
-        req = urllib.request.Request(
-            f"https://raw.githubusercontent.com/{self.user}/{repo}/HEAD/{path}", headers=HEADERS
-        )
-        with urllib.request.urlopen(req, timeout=self.file_timeout) as resp:
-            return EXTENSION_TO_LANG[ext], resp.read().decode("utf-8", errors="ignore")
+        url = f"https://raw.githubusercontent.com/{self.user}/{repo}/HEAD/{path}"
+        content = _cached_fetch_file(url, self.file_timeout)
+        return EXTENSION_TO_LANG[ext], content
+
+    def _should_include(self, match: IdentifierMatch) -> bool:
+        if not self.filters:
+            return True
+
+        normalized = match.normalized.casefold()
+        display = match.display.casefold()
+        return not any(f in normalized or f in display for f in self.filters)
 
     def _fetch_repo(self, repo: str) -> FetchResult:
         results: list[IdentifierMatch] = []
@@ -82,7 +107,9 @@ class CodeIdentifiersCard(GitHubCardBase):
                     lang_counts[lang_key] += 1
                     for name in self._extract(content, lang_key):
                         normalized = self.extractor.normalize_identifier(name)
-                        results.append(IdentifierMatch(normalized, name, lang_key))
+                        candidate = IdentifierMatch(normalized, name, lang_key)
+                        if self._should_include(candidate):
+                            results.append(candidate)
         except Exception:
             pass
         return FetchResult(results, files_scanned, lang_counts)
@@ -182,13 +209,13 @@ class CodeIdentifiersCard(GitHubCardBase):
                     seg_w = max((lang_count / total_lang) * scaled_width, 2)
                     color = LANGUAGE_COLORS.get(lang_key, "#58a6ff")
                     segments.append(
-                        f'<rect x="{x_offset:.2f}" y="0" width="{seg_w:.2f}" height="{bar_h}" rx="2" fill="{color}" />'
+                        f'<rect x="{x_offset:.2f}" y="0" width="{seg_w:.2f}" height="{bar_h}" fill="{color}" />'
                     )
                     x_offset += seg_w
 
                 svg.append(
                     f"""
-                    <g transform=\"translate({self.padding},{y})\">\n                        <text x=\"0\" y=\"{bar_h-2}\" class=\"stat-name\">{escape_xml(item['name'])}</text>\n                        <rect x=\"110\" y=\"0\" width=\"{bar_w}\" height=\"{bar_h}\" rx=\"3\" fill=\"#21262d\"/>\n                        {''.join(segments)}\n                        <text x=\"{110+bar_w+10}\" y=\"{bar_h-2}\" class=\"stat-value\">{item['count']}</text>\n                        <title>{tooltip}</title>\n                    </g>"""
+                    <g transform=\"translate({self.padding},{y})\">\n                        <text x=\"0\" y=\"{bar_h-2}\" class=\"stat-name\">{escape_xml(item['name'])}</text>\n                        <rect x=\"110\" y=\"0\" width=\"{bar_w}\" height=\"{bar_h}\" fill=\"#21262d\"/>\n                        {''.join(segments)}\n                        <text x=\"{110+bar_w+10}\" y=\"{bar_h-2}\" class=\"stat-value\">{item['count']}</text>\n                        <title>{tooltip}</title>\n                    </g>"""
                 )
             body_height = len(items) * row_h + 8
 
@@ -213,7 +240,7 @@ class CodeIdentifiersCard(GitHubCardBase):
             color = LANGUAGE_COLORS.get(lang_key, "#58a6ff")
             svg_parts.append(
                 f"""
-                 <g transform=\"translate({x},{y})\">\n                    <rect x=\"0\" y=\"-10\" width=\"12\" height=\"12\" rx=\"2\" fill=\"{color}\"/>\n                    <text x=\"18\" y=\"0\" class=\"stat-value\">{escape_xml(LANGUAGE_NAMES.get(lang_key, lang_key))} ({count})</text>\n                </g>"""
+                 <g transform=\"translate({x},{y})\">\n                    <rect x=\"0\" y=\"-10\" width=\"12\" height=\"12\" fill=\"{color}\"/>\n                    <text x=\"18\" y=\"0\" class=\"stat-value\">{escape_xml(LANGUAGE_NAMES.get(lang_key, lang_key))} ({count})</text>\n                </g>"""
              )
         return "\n".join(svg_parts), rows * 16 + 16
 

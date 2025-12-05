@@ -6,7 +6,9 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+from api.code_identifiers import card as card_module
 from api.code_identifiers import CodeIdentifiersCard
+from api.code_identifiers.card import IdentifierMatch
 
 
 def make_card():
@@ -134,6 +136,22 @@ public class Sample {
     assert {'Sample', 'entries', 'formatValue'}.issubset(set(names))
 
 
+def test_extracts_annotations_and_generics():
+    card = make_card()
+    code = """
+@Override
+public class Sample<T> {
+    private Map<String, List<Item>> table;
+
+    public Sample() {
+        new Builder();
+    }
+}
+"""
+    names = set(card._extract(code, 'java'))
+    assert {'Override', 'Sample', 'Map', 'List', 'Item', 'table', 'Builder'}.issubset(names)
+
+
 def test_should_skip_generated_or_vendor_paths():
     card = make_card()
     assert card._should_skip('dist/bundle.js') is True
@@ -194,6 +212,18 @@ public class DemoController {
     assert {'DemoController', 'Name', 'RunAsync'}.issubset(set(names))
 
 
+def test_attributes_and_base_classes_are_captured():
+    card = make_card()
+    code = """
+[Authorize]
+public class OrdersController : Controller { }
+
+class AdvancedController extends BaseController { }
+"""
+    names = set(card._extract(code, 'csharp'))
+    assert {'Authorize', 'Controller', 'AdvancedController', 'BaseController'}.issubset(names)
+
+
 def test_python_lambdas_params_and_loops():
     card = make_card()
     code = """
@@ -229,3 +259,48 @@ def test_render_body_supports_multiple_languages_per_bar():
     }
     svg, _ = card.render_body(stats)
     assert '#3572A5' in svg and '#f1e05a' in svg
+    assert 'rx=' not in svg
+
+
+def test_filters_exclude_unwanted_identifiers():
+    params = {'filter': ['System', '@Override, List']}
+    card = CodeIdentifiersCard('user', params)
+    candidates = [
+        IdentifierMatch('system_collections_generic', 'System.Collections.Generic', 'csharp'),
+        IdentifierMatch('override', 'Override', 'java'),
+        IdentifierMatch('list', 'List', 'csharp'),
+        IdentifierMatch('runner', 'runner', 'javascript'),
+    ]
+    filtered = [match.display for match in candidates if card._should_include(match)]
+    assert filtered == ['runner']
+
+
+def test_fetch_file_uses_lru_cache(monkeypatch):
+    card_module._cached_fetch_file.cache_clear()
+
+    call_count = 0
+
+    def fake_urlopen(req, timeout=None):
+        nonlocal call_count
+        call_count += 1
+
+        class DummyResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self):
+                return b"cached-content"
+
+        return DummyResponse()
+
+    monkeypatch.setattr(card_module.urllib.request, 'urlopen', fake_urlopen)
+    card = CodeIdentifiersCard('user', {})
+    lang_one, content_one = card._fetch_file('repo', 'path.cs', '.cs')
+    lang_two, content_two = card._fetch_file('repo', 'path.cs', '.cs')
+
+    assert lang_one == lang_two == card_module.EXTENSION_TO_LANG['.cs']
+    assert content_one == content_two == 'cached-content'
+    assert call_count == 1
