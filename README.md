@@ -20,15 +20,21 @@ Top languages by bytes across user's non-fork repos.
 
 ### `GET /api/code_identifiers`
 
-Most frequent identifiers (class/variable names) from source files. Bars color-coded by dominant source language.
+Most frequent identifiers (types and value names) from source files. Bars color-coded by dominant source language. Supports Python, JavaScript/TypeScript, Java, Kotlin, Go, Ruby, PHP, C#, C/C++ file extensions.
 
 | Param | Default | Description |
 |-------|---------|-------------|
 | `username` | required | GitHub username |
-| `extract` | `classes,variables` | What to extract |
+| `extract` | `types,identifiers` | What to extract (any comma-separated mix of `types` and `identifiers`; legacy `classes`/`variables` still work) |
 
 ```
 ![Identifiers](https://your-app.vercel.app/api/code_identifiers?username=cheeseonamonkey)
+```
+
+Example (types only):
+
+```
+https://your-app.vercel.app/api/code_identifiers?username=cheeseonamonkey&extract=types
 ```
 
 ## Architecture
@@ -43,7 +49,7 @@ api/
 
 **Design**: Each card extends `GitHubCardBase`, implements `fetch_data()` and `render_body()`. Base handles auth headers, error cards, and SVG frame wrapping.
 
-**Performance**: ThreadPoolExecutor for parallel repo fetching. `code_identifiers` uses compiled regex (not AST) for speed. Caps file count/size to stay within Vercel's 30s timeout.
+**Performance**: ThreadPoolExecutor for parallel repo fetching. `code_identifiers` uses compiled regex (not AST) for speed, paginates repositories, and fetches files concurrently while capping file count/size to stay within Vercel's 30s timeout.
 
 ## Rate Limits
 
