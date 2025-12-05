@@ -25,10 +25,16 @@ Most frequent identifiers (class/variable names) from source files. Bars color-c
 | Param | Default | Description |
 |-------|---------|-------------|
 | `username` | required | GitHub username |
-| `extract` | `classes,variables` | What to extract |
+| `extract` | `classes,variables` | What to extract (any comma-separated mix of `classes` and `variables`) |
 
 ```
 ![Identifiers](https://your-app.vercel.app/api/code_identifiers?username=cheeseonamonkey)
+```
+
+Example (classes only):
+
+```
+https://your-app.vercel.app/api/code_identifiers?username=cheeseonamonkey&extract=classes
 ```
 
 ## Architecture
