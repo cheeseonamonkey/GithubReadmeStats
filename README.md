@@ -4,6 +4,8 @@ SVG card generator for GitHub profiles. Deploy to Vercel, embed anywhere.
 
 ## Endpoints
 
+Visit `/api/` in a browser for a quick HTML reference of the available endpoints (the site root `/` redirects there).
+
 ### `GET /api/language_stats`
 
 Top languages by bytes across user's non-fork repos.
@@ -20,21 +22,31 @@ Top languages by bytes across user's non-fork repos.
 
 ### `GET /api/code_identifiers`
 
-Most frequent identifiers (class/variable names) from source files. Bars color-coded by dominant source language.
+Most frequent identifiers across multiple languages (Python, JS/TS, Java, Kotlin, C#, Go, C/C++, PHP, Ruby, Swift). Bars color-coded by dominant source language.
 
 | Param | Default | Description |
 |-------|---------|-------------|
 | `username` | required | GitHub username |
-| `extract` | `classes,variables` | What to extract (any comma-separated mix of `classes` and `variables`) |
+| `filter` | `types,identifiers` | Comma-separated mix of `types` (classes/records/interfaces) and `identifiers` (functions, variables) |
 
 ```
 ![Identifiers](https://your-app.vercel.app/api/code_identifiers?username=cheeseonamonkey)
 ```
 
-Example (classes only):
+### `GET /api/code_identifiers/types`
+
+Alias endpoint that forces the `filter=types` view.
 
 ```
-https://your-app.vercel.app/api/code_identifiers?username=cheeseonamonkey&extract=classes
+https://your-app.vercel.app/api/code_identifiers/types?username=cheeseonamonkey
+```
+
+### `GET /api/code_identifiers/identifiers`
+
+Alias endpoint that forces the `filter=identifiers` view.
+
+```
+https://your-app.vercel.app/api/code_identifiers/identifiers?username=cheeseonamonkey
 ```
 
 ## Architecture
@@ -43,7 +55,11 @@ https://your-app.vercel.app/api/code_identifiers?username=cheeseonamonkey&extrac
 api/
 ├── github_base.py      # Base class: auth, HTTP, SVG frame rendering
 ├── language_stats.py   # Language bytes aggregation
-├── code_identifiers.py # Identifier extraction (regex-based)
+├── code_identifiers/   # Identifier extraction (regex-based, multi-endpoint)
+│   ├── card.py
+│   ├── identifiers.py
+│   ├── index.py
+│   └── types.py
 └── index.py            # Root HTML index
 ```
 

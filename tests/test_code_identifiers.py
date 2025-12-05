@@ -1,42 +1,57 @@
+import os
+import sys
 import pytest
 from collections import Counter
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from api.code_identifiers import CodeIdentifiersCard
 
 
-def make_card(extract=None):
+def make_card(filter_value=None):
     params = {}
-    if extract is not None:
-        params['extract'] = [extract]
+    if filter_value is not None:
+        params['filter'] = [filter_value]
     return CodeIdentifiersCard('user', params)
 
 
-def test_default_extract_types_used_when_missing():
-    assert make_card().extract_type == {'classes', 'variables'}
+def test_default_filters_used_when_missing():
+    assert make_card().extract_filters == {'types', 'identifiers'}
 
 
-def test_extract_types_trimmed_and_lowercased():
-    card = make_card(' Variables , CLASSES ')
-    assert card.extract_type == {'classes', 'variables'}
+def test_filters_trimmed_and_lowercased():
+    card = make_card(' Identifiers , TYPES ')
+    assert card.extract_filters == {'types', 'identifiers'}
 
 
-def test_extract_types_fall_back_on_invalid_values():
+def test_filters_fall_back_on_invalid_values():
     card = make_card(' , ,,unknown')
-    assert card.extract_type == {'classes', 'variables'}
+    assert card.extract_filters == {'types', 'identifiers'}
 
 
-def test_extract_types_keep_valid_subset():
-    card = make_card('variables,unknown')
-    assert card.extract_type == {'variables'}
+def test_filters_keep_valid_subset():
+    card = make_card('types')
+    assert card.extract_filters == {'types'}
 
 
 def test_extract_respects_selected_types():
-    card = make_card('classes')
+    card = make_card('types')
     code = """
 class Alpha:
     value = 1
 """
     assert card._extract(code, 'python') == ['Alpha']
+
+
+def test_extract_identifiers_includes_functions_and_variables():
+    card = make_card('identifiers')
+    code = """
+def shout(value):
+    total = value + 1
+    return total
+"""
+
+    assert card._extract(code, 'python') == ['shout', 'total']
 
 
 def test_should_skip_generated_or_vendor_paths():
