@@ -27,23 +27,14 @@ Most frequent identifiers across multiple languages (Python, JS/TS, Java, Kotlin
 | Param | Default | Description |
 |-------|---------|-------------|
 | `username` | required | GitHub username |
-| `filter` | `types,identifiers` | Comma-separated mix of `types` (classes/records/interfaces) and `identifiers` (functions, variables) |
 
 ```
 ![Identifiers](https://your-app.vercel.app/api/code_identifiers?username=cheeseonamonkey)
 ```
 
-### `GET /api/code_identifiers/types`
-
-Alias endpoint that forces the `filter=types` view.
-
-```
-https://your-app.vercel.app/api/code_identifiers/types?username=cheeseonamonkey
-```
-
 ### `GET /api/code_identifiers/identifiers`
 
-Alias endpoint that forces the `filter=identifiers` view.
+Alias endpoint that matches the primary identifiers card.
 
 ```
 https://your-app.vercel.app/api/code_identifiers/identifiers?username=cheeseonamonkey
@@ -55,11 +46,10 @@ https://your-app.vercel.app/api/code_identifiers/identifiers?username=cheeseonam
 api/
 ├── github_base.py      # Base class: auth, HTTP, SVG frame rendering
 ├── language_stats.py   # Language bytes aggregation
-├── code_identifiers/   # Identifier extraction (regex-based, multi-endpoint)
+├── code_identifiers/   # Identifier extraction (regex-based)
 │   ├── card.py
 │   ├── identifiers.py
 │   ├── index.py
-│   └── types.py
 └── index.py            # Root HTML index
 ```
 
