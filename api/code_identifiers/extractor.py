@@ -38,6 +38,7 @@ SKIP_PATH_PARTS = frozenset(
 
 
 GLOBAL_STOPWORDS = frozenset({"main", "system", "uri", "url"})
+EXCLUDED_SUBSTRINGS = ("system", "override")
 
 
 PYGMENTS_LEXERS = {
@@ -69,27 +70,26 @@ class IdentifierExtractor:
         for pattern in config.strip_patterns:
             stripped_code = pattern.sub(" ", stripped_code)
 
-        names = [
-            name.lstrip("@")
-            for name in self._extract_structural_identifiers(code, lang_key)
-            + list(self._iter_identifier_matches(config.identifier_patterns, stripped_code))
-            + list(self._extract_with_pygments(code, lang_key))
-        ]
+        names = self._collect_candidates(code, stripped_code, lang_key, config)
 
         if lang_key == "python":
-            imports = self._python_import_names(code)
-            names = [name for name in names if name not in imports]
-        filtered = [
-            name
-            for name in names
-            if 2 < len(name) < 30
-            and name.lower() not in config.keywords
-            and name.lower() not in GLOBAL_STOPWORDS
-        ]
-        return list(dict.fromkeys(filtered))
+            names = self._filter_python_imports(code, names)
+
+        return self._filter_identifiers(names, config)
 
     def should_skip(self, path: str) -> bool:
         return any(part.lower() in SKIP_PATH_PARTS for part in path.split("/"))
+
+    def _collect_candidates(
+        self, code: str, stripped_code: str, lang_key: str, config: LanguageConfig
+    ) -> list[str]:
+        return [
+            name.lstrip("@")
+            for name in self._extract_structural_identifiers(code, lang_key)
+            + list(self._iter_identifier_matches(config.identifier_patterns, stripped_code))
+            + list(self._extract_bracket_generics(code))
+            + list(self._extract_with_pygments(code, lang_key))
+        ]
 
     @staticmethod
     def _iter_identifier_matches(patterns: Iterable[re.Pattern[str]], code: str) -> Iterable[str]:
@@ -129,6 +129,15 @@ class IdentifierExtractor:
         )
         return names
 
+    @staticmethod
+    def _extract_bracket_generics(code: str) -> Iterable[str]:
+        """Capture wrapper and inner types that use square-bracket generics (e.g., Optional[Response])."""
+
+        for match in re.finditer(r"\b([A-Z][A-Za-z0-9_]*)\s*\[", code):
+            yield match.group(1)
+        for match in re.finditer(r"\[\s*([A-Z][A-Za-z0-9_]*)", code):
+            yield match.group(1)
+
     def _extract_with_pygments(self, code: str, lang_key: str) -> Iterable[str]:
         lexer_name = PYGMENTS_LEXERS.get(lang_key)
         if not lexer_name:
@@ -152,12 +161,46 @@ class IdentifierExtractor:
         collapsed = re.sub(r"[^a-zA-Z0-9]+", "_", spaced)
         return collapsed.lower().strip("_") or name.lower()
 
-    @staticmethod
-    def _python_import_names(code: str) -> set[str]:
-        imports: set[str] = set()
+    def _filter_identifiers(self, names: list[str], config: LanguageConfig) -> list[str]:
+        filtered: list[str] = []
+        seen: set[str] = set()
 
-        for match in re.finditer(r"^\s*from\s+[\w\.]+\s+import\s+(.+)$", code, re.MULTILINE):
-            imports.update(filter(None, re.split(r"\s*,\s*", match.group(1).replace(" as ", ","))))
+        for name in names:
+            normalized = name.lower()
+            if (
+                normalized in seen
+                or any(sub in normalized for sub in EXCLUDED_SUBSTRINGS)
+                or not (2 < len(name) < 30)
+                or normalized in config.keywords
+                or normalized in GLOBAL_STOPWORDS
+            ):
+                continue
+
+            filtered.append(name)
+            seen.add(normalized)
+
+        return filtered
+
+    def _filter_python_imports(self, code: str, names: list[str]) -> list[str]:
+        imports, modules = self._python_import_names(code)
+        code_without_imports = re.sub(r"^(?:from|import)\s+.*$", " ", code, flags=re.MULTILINE)
+
+        used_names = {
+            name
+            for name in imports | modules
+            if re.search(rf"\b{re.escape(name)}\b", code_without_imports)
+        }
+
+        return [name for name in names if name not in imports | modules or name in used_names]
+
+    @staticmethod
+    def _python_import_names(code: str) -> tuple[set[str], set[str]]:
+        imports: set[str] = set()
+        modules: set[str] = set()
+
+        for match in re.finditer(r"^\s*from\s+([\w\.]+)\s+import\s+(.+)$", code, re.MULTILINE):
+            modules.update(match.group(1).split("."))
+            imports.update(filter(None, re.split(r"\s*,\s*", match.group(2).replace(" as ", ","))))
 
         for match in re.finditer(r"^\s*import\s+(.+)$", code, re.MULTILINE):
             parts = re.split(r"\s*,\s*", match.group(1))
@@ -165,8 +208,9 @@ class IdentifierExtractor:
                 clean = alias.split(" as ")[-1].split(".")[0].strip()
                 base = alias.split(" as ")[0].split(".")[0].strip()
                 imports.update(filter(None, (clean, base)))
+                modules.add(base)
 
-        return imports
+        return imports, modules
 
 
-__all__ = ["IdentifierExtractor", "GLOBAL_STOPWORDS", "SKIP_PATH_PARTS"]
+__all__ = ["IdentifierExtractor", "GLOBAL_STOPWORDS", "SKIP_PATH_PARTS", "EXCLUDED_SUBSTRINGS"]
