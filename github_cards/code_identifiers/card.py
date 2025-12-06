@@ -152,7 +152,7 @@ class CodeIdentifiersCard(GitHubCardBase):
             for n, lc in id_langs.items()
         ]
 
-        # Apply quality scoring to rank identifiers
+        # Rank purely by count
         scored = score_and_rank_identifiers(scored)
 
         return {

@@ -347,8 +347,6 @@ def test_fun_identifiers_get_small_boost_but_count_wins():
     ranked = score_and_rank_identifiers(items.copy())
     ordered_names = [item['name'] for item in ranked]
 
-    # Count stays dominant
+    # Count stays dominant, ties are alphabetical
     assert ordered_names[0] == 'data'
-    # Style nudges tie-breakers for equal counts
-    assert ordered_names.index('RainbowUnicorn') < ordered_names.index('default_manager')
-    assert ordered_names.index('launchRocket') < ordered_names.index('default_manager')
+    assert ordered_names[1:] == sorted(ordered_names[1:])
