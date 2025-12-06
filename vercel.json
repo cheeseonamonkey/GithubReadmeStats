@@ -4,9 +4,9 @@
     "GITHUB_TOKEN": ""
   },
   "functions": {
-    "api/**/*.py": {
-      "maxDuration": 30,
-      "memory": 128
-    }
+    "api/index.py": { "maxDuration": 30, "memory": 128 },
+    "api/language_stats.py": { "maxDuration": 30, "memory": 128 },
+    "api/code_identifiers/index.py": { "maxDuration": 30, "memory": 128 },
+    "api/code_identifiers/identifiers.py": { "maxDuration": 30, "memory": 128 }
   }
 }
