@@ -32,17 +32,10 @@ class PythonASTExtractor(BaseExtractor):
         if not self.supports_language(lang_key):
             return []
 
-        try:
-            tree = ast.parse(code)
-            visitor = IdentifierVisitor()
-            visitor.visit(tree)
-            return visitor.identifiers
-        except SyntaxError:
-            # If AST parsing fails, return empty list
-            # The regex extractor will still pick up some identifiers
-            return []
-        except Exception:
-            return []
+        tree = ast.parse(code)
+        visitor = IdentifierVisitor()
+        visitor.visit(tree)
+        return visitor.identifiers
 
 
 class IdentifierVisitor(ast.NodeVisitor):

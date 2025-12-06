@@ -13,8 +13,6 @@ import urllib.request
 from ..github_base import GitHubCardBase, HEADERS, escape_xml
 from .extractor import IdentifierExtractor
 from .languages import EXTENSION_TO_LANG, LANGUAGE_COLORS, LANGUAGE_NAMES
-from .filtering.deduplicator import SmartDeduplicator
-from .filtering.quality_scorer import score_and_rank_identifiers
 from .cache import CacheManager
 
 
@@ -130,7 +128,8 @@ class CodeIdentifiersCard(GitHubCardBase):
         repos = self._fetch_all_repos()
         repo_names = [r["name"] for r in repos if not r.get("fork")]
 
-        deduplicator = SmartDeduplicator()
+        id_langs: dict[str, CounterType[str]] = {}
+        display_names: dict[str, str] = {}
         lang_file_counts: CounterType[str] = CounterType()
         total_files = 0
 
@@ -140,10 +139,8 @@ class CodeIdentifiersCard(GitHubCardBase):
                 total_files += result.files_scanned
                 lang_file_counts.update(result.language_counts)
                 for match in result.identifiers:
-                    deduplicator.add(match.display, match.lang)
-
-        # Get deduplicated results
-        id_langs, display_names = deduplicator.get_results()
+                    id_langs.setdefault(match.normalized, CounterType())[match.lang] += 1
+                    display_names.setdefault(match.normalized, match.display)
 
         limit = 15
         try:
@@ -162,8 +159,8 @@ class CodeIdentifiersCard(GitHubCardBase):
             for n, lc in id_langs.items()
         ]
 
-        # Rank purely by count
-        scored = score_and_rank_identifiers(scored)
+        # Sort by count (desc), then name (asc) for stability
+        scored.sort(key=lambda x: (-x["count"], x["name"]))
 
         return {
             "items": scored[:limit],

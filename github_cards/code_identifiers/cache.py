@@ -7,26 +7,16 @@ import json
 import os
 from typing import Any, Optional
 
-# Vercel KV client (optional dependency)
-try:
-    from upstash_redis import Redis
-    KV_AVAILABLE = True
-except ImportError:
-    KV_AVAILABLE = False
+from upstash_redis import Redis
 
 
 def get_kv_client() -> Optional[Redis]:
-    """Get Vercel KV client if available and configured."""
-    if not KV_AVAILABLE:
-        return None
+    """Get Vercel KV client if configured."""
     url = os.environ.get("KV_REST_API_URL")
     token = os.environ.get("KV_REST_API_TOKEN")
     if not url or not token:
         return None
-    try:
-        return Redis(url=url, token=token)
-    except Exception:
-        return None
+    return Redis(url=url, token=token)
 
 
 class CacheManager:
@@ -78,24 +68,14 @@ class CacheManager:
 
     # --- Internal helpers ---
     def _get(self, key: str) -> Optional[Any]:
-        # Try KV first
         if self._kv:
-            try:
-                val = self._kv.get(key)
-                if val is not None:
-                    return json.loads(val) if isinstance(val, str) else val
-            except Exception:
-                pass
-        # Fallback to local cache
+            val = self._kv.get(key)
+            if val is not None:
+                return json.loads(val) if isinstance(val, str) else val
         return self._local_cache.get(key)
 
     def _set(self, key: str, value: Any, ttl: int) -> None:
-        # Try KV first
         if self._kv:
-            try:
-                self._kv.setex(key, ttl, json.dumps(value))
-                return
-            except Exception:
-                pass
-        # Fallback to local cache (no TTL enforcement in-memory)
-        self._local_cache[key] = value
+            self._kv.setex(key, ttl, json.dumps(value))
+        else:
+            self._local_cache[key] = value

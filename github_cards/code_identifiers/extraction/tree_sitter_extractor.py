@@ -6,16 +6,11 @@ from typing import List, Dict, Set, Optional
 
 from .base import BaseExtractor
 
-# Tree-sitter imports (optional dependency)
-try:
-    from tree_sitter import Language, Parser
-    import tree_sitter_javascript as ts_javascript
-    import tree_sitter_typescript as ts_typescript
-    import tree_sitter_java as ts_java
-    import tree_sitter_go as ts_go
-    TS_AVAILABLE = True
-except ImportError:
-    TS_AVAILABLE = False
+from tree_sitter import Language, Parser
+import tree_sitter_javascript as ts_javascript
+import tree_sitter_typescript as ts_typescript
+import tree_sitter_java as ts_java
+import tree_sitter_go as ts_go
 
 
 class TreeSitterExtractor(BaseExtractor):
@@ -96,8 +91,7 @@ class TreeSitterExtractor(BaseExtractor):
     def __init__(self):
         self._parsers: Dict[str, Parser] = {}
         self._languages: Dict[str, Language] = {}
-        if TS_AVAILABLE:
-            self._init_parsers()
+        self._init_parsers()
 
     def _init_parsers(self) -> None:
         """Initialize tree-sitter parsers for supported languages."""
@@ -108,18 +102,14 @@ class TreeSitterExtractor(BaseExtractor):
             "go": ts_go,
         }
         for lang_key, module in lang_modules.items():
-            try:
-                lang = Language(module.language())
-                self._languages[lang_key] = lang
-                parser = Parser(lang)
-                self._parsers[lang_key] = parser
-            except Exception:
-                # Skip languages that fail to initialize
-                pass
+            lang = Language(module.language())
+            self._languages[lang_key] = lang
+            parser = Parser(lang)
+            self._parsers[lang_key] = parser
 
     def supports_language(self, lang_key: str) -> bool:
         """Check if tree-sitter supports this language."""
-        return TS_AVAILABLE and lang_key in self._parsers
+        return lang_key in self._parsers
 
     def extract(self, code: str, lang_key: str) -> List[str]:
         """
@@ -135,13 +125,10 @@ class TreeSitterExtractor(BaseExtractor):
         if not self.supports_language(lang_key):
             return []
 
-        try:
-            tree = self._parsers[lang_key].parse(code.encode("utf-8"))
-            identifiers: List[str] = []
-            self._walk_tree(tree.root_node, lang_key, identifiers)
-            return identifiers
-        except Exception:
-            return []
+        tree = self._parsers[lang_key].parse(code.encode("utf-8"))
+        identifiers: List[str] = []
+        self._walk_tree(tree.root_node, lang_key, identifiers)
+        return identifiers
 
     def _walk_tree(self, node, lang_key: str, identifiers: List[str]) -> None:
         """
@@ -163,12 +150,9 @@ class TreeSitterExtractor(BaseExtractor):
 
     def _get_node_text(self, node) -> Optional[str]:
         """Extract text content from a tree-sitter node."""
-        try:
-            if node.text:
-                return node.text.decode("utf-8")
-        except Exception:
-            pass
+        if node.text:
+            return node.text.decode("utf-8")
         return None
 
 
-__all__ = ["TreeSitterExtractor", "TS_AVAILABLE"]
+__all__ = ["TreeSitterExtractor"]

@@ -75,11 +75,7 @@ class CompositeExtractor(BaseExtractor):
         results = []
         for extractor in self.extractors:
             if extractor.supports_language(lang_key):
-                try:
-                    results.extend(extractor.extract(code, lang_key))
-                except Exception:
-                    # Gracefully handle extraction errors
-                    pass
+                results.extend(extractor.extract(code, lang_key))
         return results
 
 
