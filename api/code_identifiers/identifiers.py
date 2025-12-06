@@ -1,5 +1,5 @@
 from http.server import BaseHTTPRequestHandler
-from .card import _respond_with_card
+from github_cards.code_identifiers import _respond_with_card
 
 
 class handler(BaseHTTPRequestHandler):

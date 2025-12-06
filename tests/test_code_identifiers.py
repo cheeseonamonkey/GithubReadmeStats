@@ -6,9 +6,9 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from api.code_identifiers import card as card_module
-from api.code_identifiers import CodeIdentifiersCard
-from api.code_identifiers.card import IdentifierMatch
+from github_cards.code_identifiers import card as card_module
+from github_cards.code_identifiers import CodeIdentifiersCard
+from github_cards.code_identifiers.card import IdentifierMatch
 
 
 def make_card():

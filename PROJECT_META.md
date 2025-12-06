@@ -24,6 +24,7 @@
 | Directory | Exists | Purpose |
 |-----------|--------|---------|
 | api/ | ✓ | main source code |
+| github_cards/ | ✓ | shared card logic used by api endpoints |
 | tests/ | ✓ | test suite |
 | .claude/ | ✓ | claude code commands & settings |
 | docs/ | ✗ | documentation |
@@ -50,6 +51,12 @@
 .
 ├── api/
 │   ├── code_identifiers/
+│   │   ├── identifiers.py
+│   │   ├── index.py
+│   ├── index.py
+│   └── language_stats.py
+├── github_cards/
+│   ├── code_identifiers/
 │   │   ├── extraction/
 │   │   │   ├── ast_extractors.py
 │   │   │   ├── base.py
@@ -62,14 +69,10 @@
 │   │   │   └── stopwords.py
 │   │   ├── card.py
 │   │   ├── extractor.py
-│   │   ├── identifiers.py
-│   │   ├── index.py
-│   │   ├── __init__.py
-│   │   └── languages.py
+│   │   ├── languages.py
+│   │   └── __init__.py
 │   ├── github_base.py
-│   ├── index.py
-│   ├── __init__.py
-│   └── language_stats.py
+│   └── __init__.py
 ├── tests/
 │   ├── test_code_identifiers.py
 │   └── test_integration_identifiers.py

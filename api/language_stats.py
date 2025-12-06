@@ -1,6 +1,6 @@
 # language_stats.py
 
-from .github_base import GitHubCardBase, escape_xml, format_bytes
+from github_cards.github_base import GitHubCardBase, escape_xml, format_bytes
 import urllib.error
 from urllib.parse import parse_qs, urlparse
 from http.server import BaseHTTPRequestHandler

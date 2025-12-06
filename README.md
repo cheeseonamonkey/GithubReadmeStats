@@ -44,13 +44,20 @@ https://your-app.vercel.app/api/code_identifiers/identifiers?username=cheeseonam
 
 ```
 api/
-├── github_base.py      # Base class: auth, HTTP, SVG frame rendering
-├── language_stats.py   # Language bytes aggregation
-├── code_identifiers/   # Identifier extraction (regex-based)
-│   ├── card.py
-│   ├── identifiers.py
-│   ├── index.py
-└── index.py            # Root HTML index
+├── index.py                # Root HTML index
+├── language_stats.py       # Language bytes aggregation endpoint
+└── code_identifiers/       # Endpoint wrappers
+    ├── index.py
+    └── identifiers.py
+
+github_cards/               # Shared code kept outside api/ to avoid extra lambdas
+├── github_base.py          # Base class: auth, HTTP, SVG frame rendering
+└── code_identifiers/
+    ├── card.py
+    ├── extractor.py
+    ├── languages.py
+    ├── extraction/
+    └── filtering/
 ```
 
 **Design**: Each card extends `GitHubCardBase`, implements `fetch_data()` and `render_body()`. Base handles auth headers, error cards, and SVG frame wrapping.

@@ -1,7 +1,7 @@
 """Integration tests for code_identifiers endpoint with real GitHub data."""
 
 import pytest
-from api.code_identifiers.card import CodeIdentifiersCard
+from github_cards.code_identifiers.card import CodeIdentifiersCard
 
 
 # Target usernames for testing
