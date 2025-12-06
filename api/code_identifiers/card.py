@@ -13,6 +13,8 @@ import urllib.request
 from ..github_base import GitHubCardBase, HEADERS, escape_xml
 from .extractor import IdentifierExtractor
 from .languages import EXTENSION_TO_LANG, LANGUAGE_COLORS, LANGUAGE_NAMES
+from .filtering.deduplicator import SmartDeduplicator
+from .filtering.quality_scorer import score_and_rank_identifiers
 
 
 @dataclass(frozen=True)
@@ -118,8 +120,7 @@ class CodeIdentifiersCard(GitHubCardBase):
         repos = self._fetch_all_repos()
         repo_names = [r["name"] for r in repos if not r.get("fork")]
 
-        id_langs: dict[str, CounterType[str]] = {}
-        display_names: dict[str, str] = {}
+        deduplicator = SmartDeduplicator()
         lang_file_counts: CounterType[str] = CounterType()
         total_files = 0
 
@@ -129,13 +130,17 @@ class CodeIdentifiersCard(GitHubCardBase):
                 total_files += result.files_scanned
                 lang_file_counts.update(result.language_counts)
                 for match in result.identifiers:
-                    id_langs.setdefault(match.normalized, CounterType())[match.lang] += 1
-                    display_names.setdefault(match.normalized, match.display)
+                    deduplicator.add(match.display, match.lang)
+
+        # Get deduplicated results
+        id_langs, display_names = deduplicator.get_results()
 
         limit = 15
         try:
-            limit = max(1, min(50, int(self.params.get("count", [limit])[0])))
-        except (TypeError, ValueError):
+            # Support both "n" and "count" parameters for backwards compatibility
+            n_value = self.params.get("n", self.params.get("count", [limit]))[0]
+            limit = max(1, min(50, int(n_value)))
+        except (TypeError, ValueError, IndexError):
             pass
 
         scored = [
@@ -146,7 +151,10 @@ class CodeIdentifiersCard(GitHubCardBase):
             }
             for n, lc in id_langs.items()
         ]
-        scored.sort(key=lambda x: x["count"], reverse=True)
+
+        # Apply quality scoring to rank identifiers
+        scored = score_and_rank_identifiers(scored)
+
         return {
             "items": scored[:limit],
             "language_files": lang_file_counts,

@@ -10,6 +10,9 @@ from pygments.lexers import get_lexer_by_name
 from pygments.token import Name
 
 from .languages import LANG_MAP, LanguageConfig
+from .filtering.stopwords import GLOBAL_STOPWORDS, LANGUAGE_STOPWORDS, EXCLUDED_SUBSTRINGS
+from .filtering.normalizer import normalize_identifier as norm_identifier
+from .extraction.ast_extractors import PythonASTExtractor
 
 
 SKIP_PATH_PARTS = frozenset(
@@ -37,10 +40,6 @@ SKIP_PATH_PARTS = frozenset(
 )
 
 
-GLOBAL_STOPWORDS = frozenset({"main", "system", "uri", "url"})
-EXCLUDED_SUBSTRINGS = ("system", "override")
-
-
 PYGMENTS_LEXERS = {
     "python": "python",
     "javascript": "javascript",
@@ -60,6 +59,7 @@ class IdentifierExtractor:
 
     def __init__(self):
         self._lang_map: dict[str, LanguageConfig] = LANG_MAP
+        self._ast_extractor = PythonASTExtractor()
 
     def extract(self, code: str, lang_key: str) -> List[str]:
         config = self._lang_map.get(lang_key)
@@ -75,7 +75,7 @@ class IdentifierExtractor:
         if lang_key == "python":
             names = self._filter_python_imports(code, names)
 
-        return self._filter_identifiers(names, config)
+        return self._filter_identifiers(names, config, lang_key)
 
     def should_skip(self, path: str) -> bool:
         return any(part.lower() in SKIP_PATH_PARTS for part in path.split("/"))
@@ -83,13 +83,20 @@ class IdentifierExtractor:
     def _collect_candidates(
         self, code: str, stripped_code: str, lang_key: str, config: LanguageConfig
     ) -> list[str]:
-        return [
-            name.lstrip("@")
-            for name in self._extract_structural_identifiers(code, lang_key)
-            + list(self._iter_identifier_matches(config.identifier_patterns, stripped_code))
-            + list(self._extract_bracket_generics(code))
-            + list(self._extract_with_pygments(code, lang_key))
-        ]
+        candidates = []
+
+        # Try AST extraction first (more accurate for supported languages)
+        if self._ast_extractor.supports_language(lang_key):
+            candidates.extend(self._ast_extractor.extract(code, lang_key))
+
+        # Add results from other extraction methods
+        candidates.extend(self._extract_structural_identifiers(code, lang_key))
+        candidates.extend(self._iter_identifier_matches(config.identifier_patterns, stripped_code))
+        candidates.extend(self._extract_bracket_generics(code))
+        candidates.extend(self._extract_with_pygments(code, lang_key))
+
+        # Strip @ prefix from decorators
+        return [name.lstrip("@") for name in candidates]
 
     @staticmethod
     def _iter_identifier_matches(patterns: Iterable[re.Pattern[str]], code: str) -> Iterable[str]:
@@ -157,22 +164,26 @@ class IdentifierExtractor:
 
     @staticmethod
     def normalize_identifier(name: str) -> str:
-        spaced = re.sub(r"(?<=[a-z0-9])([A-Z])", r"_\1", name)
-        collapsed = re.sub(r"[^a-zA-Z0-9]+", "_", spaced)
-        return collapsed.lower().strip("_") or name.lower()
+        """Normalize identifier using the improved normalization logic."""
+        return norm_identifier(name)
 
-    def _filter_identifiers(self, names: list[str], config: LanguageConfig) -> list[str]:
+    def _filter_identifiers(self, names: list[str], config: LanguageConfig, lang_key: str) -> list[str]:
         filtered: list[str] = []
         seen: set[str] = set()
 
+        # Get language-specific stopwords
+        lang_stopwords = LANGUAGE_STOPWORDS.get(lang_key, frozenset())
+
         for name in names:
             normalized = name.lower()
+
             if (
                 normalized in seen
                 or any(sub in normalized for sub in EXCLUDED_SUBSTRINGS)
                 or not (2 < len(name) < 30)
                 or normalized in config.keywords
                 or normalized in GLOBAL_STOPWORDS
+                or normalized in lang_stopwords
             ):
                 continue
 
