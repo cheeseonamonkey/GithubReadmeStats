@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from github_cards.code_identifiers import card as card_module
 from github_cards.code_identifiers import CodeIdentifiersCard
 from github_cards.code_identifiers.card import IdentifierMatch
+from github_cards.code_identifiers.filtering.quality_scorer import score_and_rank_identifiers
 
 
 def make_card():
@@ -333,3 +334,21 @@ def test_fetch_file_uses_lru_cache(monkeypatch):
     assert lang_one == lang_two == card_module.EXTENSION_TO_LANG['.cs']
     assert content_one == content_two == 'cached-content'
     assert call_count == 1
+
+
+def test_fun_identifiers_get_small_boost_but_count_wins():
+    items = [
+        {'name': 'data', 'count': 40, 'langs': Counter({'python': 40})},
+        {'name': 'RainbowUnicorn', 'count': 10, 'langs': Counter({'python': 10})},
+        {'name': 'launchRocket', 'count': 10, 'langs': Counter({'javascript': 6, 'typescript': 4})},
+        {'name': 'default_manager', 'count': 10, 'langs': Counter({'python': 10})},
+    ]
+
+    ranked = score_and_rank_identifiers(items.copy())
+    ordered_names = [item['name'] for item in ranked]
+
+    # Count stays dominant
+    assert ordered_names[0] == 'data'
+    # Style nudges tie-breakers for equal counts
+    assert ordered_names.index('RainbowUnicorn') < ordered_names.index('default_manager')
+    assert ordered_names.index('launchRocket') < ordered_names.index('default_manager')
