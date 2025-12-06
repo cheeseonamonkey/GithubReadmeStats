@@ -15,6 +15,7 @@ from .extractor import IdentifierExtractor
 from .languages import EXTENSION_TO_LANG, LANGUAGE_COLORS, LANGUAGE_NAMES
 from .filtering.deduplicator import SmartDeduplicator
 from .filtering.quality_scorer import score_and_rank_identifiers
+from .cache import CacheManager
 
 
 @dataclass(frozen=True)
@@ -49,6 +50,7 @@ class CodeIdentifiersCard(GitHubCardBase):
         self.file_timeout = 3
         self.extractor = IdentifierExtractor()
         self.filters = self._parse_filters(query_params)
+        self.cache = CacheManager(username)
 
     @staticmethod
     def _parse_filters(query_params: dict) -> list[str]:
@@ -68,7 +70,11 @@ class CodeIdentifiersCard(GitHubCardBase):
 
     def _fetch_file(self, repo: str, path: str, ext: str):
         url = f"https://raw.githubusercontent.com/{self.user}/{repo}/HEAD/{path}"
-        content = _cached_fetch_file(url, self.file_timeout)
+        # Try KV cache first, then LRU, then fetch
+        content = self.cache.get_file(url)
+        if content is None:
+            content = _cached_fetch_file(url, self.file_timeout)
+            self.cache.set_file(url, content)
         return EXTENSION_TO_LANG[ext], content
 
     def _should_include(self, match: IdentifierMatch) -> bool:
@@ -83,9 +89,13 @@ class CodeIdentifiersCard(GitHubCardBase):
         results: list[IdentifierMatch] = []
         files_scanned, lang_counts = 0, CounterType()
         try:
-            tree = self._make_request(
-                f"https://api.github.com/repos/{self.user}/{repo}/git/trees/HEAD?recursive=1"
-            )
+            # Try cache first for file tree
+            tree = self.cache.get_tree(repo)
+            if tree is None:
+                tree = self._make_request(
+                    f"https://api.github.com/repos/{self.user}/{repo}/git/trees/HEAD?recursive=1"
+                )
+                self.cache.set_tree(repo, tree)
             files = [
                 (f["path"], ext)
                 for f in tree.get("tree", [])
@@ -163,6 +173,11 @@ class CodeIdentifiersCard(GitHubCardBase):
         }
 
     def _fetch_all_repos(self):
+        # Try cache first
+        cached = self.cache.get_repos()
+        if cached is not None:
+            return cached
+
         page, repos = 1, []
         while True:
             batch = self._make_request(
@@ -174,6 +189,8 @@ class CodeIdentifiersCard(GitHubCardBase):
             if len(batch) < 100:
                 break
             page += 1
+
+        self.cache.set_repos(repos)
         return repos
 
     def process(self):

@@ -119,6 +119,10 @@ LANGUAGE_CONFIGS: Sequence[LanguageConfig] = (
                 re.MULTILINE | re.IGNORECASE,
             ),
             re.compile(r"^\s*export\s+default\s+function\s+([a-z_$][a-z0-9_$]*)", re.MULTILINE | re.IGNORECASE),
+            # Arrow functions
+            re.compile(r"(?:const|let|var)\s+([a-z_$][a-z0-9_$]*)\s*=\s*(?:async\s+)?\([^)]*\)\s*=>", re.IGNORECASE),
+            # Object method shorthand
+            re.compile(r"^\s*([a-z_$][a-z0-9_$]*)\s*\([^)]*\)\s*\{", re.MULTILINE | re.IGNORECASE),
         ),
         keywords=frozenset(
             {
@@ -190,6 +194,10 @@ LANGUAGE_CONFIGS: Sequence[LanguageConfig] = (
                 re.MULTILINE | re.IGNORECASE,
             ),
             re.compile(r"^\s*export\s+default\s+class\s+([A-Za-z_][A-Za-z0-9_]*)", re.MULTILINE),
+            # Arrow functions
+            re.compile(r"(?:const|let|var)\s+([a-z_$][a-z0-9_$]*)\s*=\s*(?:async\s+)?(?:<[^>]+>)?\([^)]*\)\s*=>", re.IGNORECASE),
+            # Object method shorthand
+            re.compile(r"^\s*([a-z_$][a-z0-9_$]*)\s*\([^)]*\)\s*:\s*\w+\s*\{", re.MULTILINE | re.IGNORECASE),
         ),
         keywords=frozenset(
             {

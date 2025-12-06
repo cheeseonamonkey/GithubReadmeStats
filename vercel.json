@@ -1,7 +1,9 @@
 {
   "version": 2,
   "env": {
-    "GITHUB_TOKEN": ""
+    "GITHUB_TOKEN": "",
+    "KV_REST_API_URL": "",
+    "KV_REST_API_TOKEN": ""
   },
   "functions": {
     "api/index.py": { "maxDuration": 30, "memory": 128 },
